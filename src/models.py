@@ -1,6 +1,7 @@
-from typing import Literal
+from datetime import date
+from typing import Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 
 class RequisitionBody(BaseModel):
@@ -25,5 +26,34 @@ class RequisitionBody(BaseModel):
         )
 
 
-# dados_teste = RequisitionBody()
-# print(dados_teste.url)
+class PolishedDengueRow(BaseModel):
+    data_ini_Se: date = Field(alias="data_iniSE")
+    casos: int = 0
+    casos_est: int = Field(default=0, alias="casos_est")
+    notif_accum_year: int = 0
+    tempmed: Optional[float] = None
+    umidmed: Optional[float] = None
+    nivel: int
+
+    model_config = ConfigDict(extra="ignore", from_attributes=True)
+
+    @computed_field
+    @property
+    def alerta_status(self) -> str:
+        map_warns = {
+            1: "🟢 Verde",
+            2: "🟡 Amarelo",
+            3: "🟠 Laranja",
+            4: "🔴 Vermelho",
+        }
+        return map_warns.get(self.nivel, "⚪ Desconhecido")
+
+    # Validador para garantir que valores nulos (NaN) viram 0 nos casos
+    @field_validator("casos", "casos_est", mode="before")
+    @classmethod
+    def substitute_nans(cls, value):
+        import math
+
+        if value is None or (isinstance(value, float) and math.isnan(value)):
+            return 0
+        return int(value)
