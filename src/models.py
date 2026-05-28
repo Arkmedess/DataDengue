@@ -27,7 +27,8 @@ class RequisitionBody(BaseModel):
 
 
 class PolishedDengueRow(BaseModel):
-    data_ini_Se: date = Field(alias="data_iniSE")
+    data_ini_SE: date = Field(alias="data_iniSE")
+    SE: int
     casos: int = 0
     casos_est: int = Field(default=0, alias="casos_est")
     notif_accum_year: int = 0

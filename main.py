@@ -1,3 +1,6 @@
+import subprocess
+import sys
+
 from src.api_service import export_csv, get_csv, polish_data
 from src.models import RequisitionBody
 
@@ -11,6 +14,8 @@ if __name__ == "__main__":
         df_polish = polish_data(df_raw)
 
         export_csv(df_polish, file_name="Dengue_Jundiai.csv")
+
+        subprocess.run([sys.executable, "-m", "streamlit", "run", "src/dashboard.py"])
 
     except Exception as e:
         print(f"Ocorreu um problema: {e}")
