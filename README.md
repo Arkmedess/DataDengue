@@ -56,11 +56,13 @@ As informacoes exibidas consideram o municipio e o intervalo configurados na req
 - data/: saida de dados
 
 ## Prints
-Espaco reservado para imagens do dashboard.
 
-Coloque aqui suas capturas de tela:
-- (imagem 1)
-- (imagem 2)
+<img width="1836" height="698" alt="Captura de tela 2026-05-28 182819" src="https://github.com/user-attachments/assets/0194105f-4906-4e3a-a095-9825f9151dd7" />
+
+<img width="1562" height="976" alt="Captura de tela 2026-05-28 182947" src="https://github.com/user-attachments/assets/5d3dcf58-542b-4af8-8d37-448a1ccb99c7" />
+
+<img width="1561" height="941" alt="Captura de tela 2026-05-28 182920" src="https://github.com/user-attachments/assets/e3567ab5-fac0-4a25-ba38-2d269f902030" />
+
 
 ## Observacoes
 
