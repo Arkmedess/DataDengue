@@ -1,134 +1,203 @@
 # DataDengue
 
-Pipeline de dados e análise epidemiológica para monitoramento de arboviroses a partir da **API InfoDengue (Fiocruz/EMAp)**, estruturando desde a ingestão relacional até modelos dimensionais (Star Schema) e interfaces de visualização.
+Pipeline de engenharia de dados e inteligência epidemiológica para monitoramento de arboviroses (**Dengue, Chikungunya e Zika**) a partir da **API InfoDengue (Fiocruz/EMAp)**. Estrutura o ciclo analítico completo: ingestão relacional em 3FN (**PostgreSQL**), modelagem dimensional (**Star Schema**), geração de **SQL Views**, exportação de datasets, inspeção via **JetBrains DataGrip**, dashboard web com **DataGrid** e suporte para **Power BI (.pbix)**.
 
 ---
 
-## A API InfoDengue
+## 🗂️ Árvore de Diretórios do Projeto
 
-Os dados são consumidos diretamente da API pública mantida pelo sistema **InfoDengue** (Fiocruz e FGV/EMAp), que cruza notificações laboratoriais do SINAN com dados meteorológicos de satélite e estações aeroportuárias.
+```text
+DataDengue/
+├── docker-compose.yml              # Serviço PostgreSQL 16 (Alpine) na porta 5432
+├── main.py                         # Ponto de entrada CLI e orquestrador do pipeline
+├── pyproject.toml                  # Configuração do projeto e dependências (uv/pip)
+├── uv.lock                         # Lockfile determinístico de pacotes
+├── README.md                       # Documentação principal
+│
+├── sql/                            # Scripts DDL e Consultas SQL
+│   ├── 01_create_transacional_oltp.sql  # Schema 'oltp': tabelas relacionais em 3FN
+│   ├── 02_create_dw_star_schema.sql    # Schema 'dw': modelo dimensional Star Schema
+│   ├── 03_queries_analiticas.sql        # Consultas de agregação e métricas avançadas
+│   └── 04_create_views.sql             # SQL Views analíticas (vw_*)
+│
+├── src/                            # Código-fonte da aplicação
+│   ├── api_service.py              # Cliente HTTP resiliente para a API InfoDengue
+│   ├── database.py                 # Gerenciamento de Engine SQLAlchemy e conexões PostgreSQL
+│   ├── models.py                   # Modelos de validação Pydantic para parâmetros
+│   ├── oltp_loader.py              # Ingestão idempotente normalizada em 3FN (schema oltp)
+│   ├── etl_pipeline.py             # Pipeline ETL para o Star Schema e exportação de CSVs
+│   ├── dashboard.py                # Dashboard analítico em Streamlit com DataGrid Inspector
+│   └── cli/                        # Camada de interface de linha de comando
+│       ├── __init__.py             # Exportação das rotinas da CLI
+│       └── service.py              # Subcomandos (status, summary, clean, tui)
+│
+├── data/                           # Armazenamento de dados
+│   ├── oltp/                       # Diretório auxiliar operacional
+│   └── dw/                         # Datasets dimensionais exportados para Power BI (CSV)
+│       ├── dim_alerta.csv
+│       ├── dim_clima.csv
+│       ├── dim_doenca.csv
+│       ├── dim_municipio.csv
+│       ├── dim_tempo.csv
+│       └── fato_casos_dengue.csv
+│
+├── dax/                            # Fórmulas e Medidas DAX
+│   └── medidas_power_bi.dax        # 16 medidas calculadas prontas para Power BI
+│
+├── docs/                           # Guias detalhados de uso e arquitetura
+│   ├── GUIA_WINDOWS_WSL.md         # Passo a passo completo para Windows, WSL 2 e DataGrip
+│   ├── GUIA_POWER_BI.md            # Guia prático de modelagem e visuais para Power BI (.pbix)
+│   └── MODELAGEM_DIMENSIONAL.md    # Dicionário de dados e arquitetura do Star Schema
+│
+└── tests/                          # Suíte de testes automatizados (pytest)
+    ├── test_cli_service.py
+    ├── test_etl_pipeline.py
+    ├── test_multi_disease_and_resilience.py
+    └── test_oltp_loader.py
+```
 
-### Parâmetros Configuráveis (`src/models.py`)
-No modelo `RequisitionBody`, você pode personalizar os parâmetros da requisição para qualquer município ou janela temporal:
+---
 
+## 🌐 A API InfoDengue & Parâmetros
+
+Os dados são consumidos diretamente da API pública do **InfoDengue** (Fiocruz e FGV/EMAp), cruzando dados laboratoriais do SINAN com dados meteorológicos (satélite e estações aeroportuárias).
+
+### Parâmetros Suportados (`src/models.py`)
 * `geocode`: Código IBGE do município (padrão: `3525904` — Jundiaí/SP).
-* `disease`: Arbovirose desejada (`dengue`, `chikungunya`, `zika`).
-* `format`: Formato de resposta da API (`csv` ou `json`).
-* `ew_start` / `ew_end`: Semanas epidemiológicas de início e fim (1 a 53).
-* `ey_start` / `ey_end`: Anos do período de análise (ex.: 2024 a 2025).
-
-A API retorna métricas brutas somadas a estimativas estatísticas de **Nowcasting** (correção do atraso natural de digitação e confirmação de exames) e cálculo de velocidade de contágio ($R_t$).
+* `disease`: Arbovirose (`dengue`, `chikungunya`, `zika`). Suporta ingestão multi-doenças em lote.
+* `ew_start` / `ew_end`: Semanas epidemiológicas (1 a 53).
+* `ey_start` / `ey_end`: Anos da série histórica (2010 a 2026, com autocorreção caso invertidos).
 
 ---
 
-## O Que os Dados Permitem Enxergar (Views & Análises)
+## 🏛️ Arquitetura de Dados: PostgreSQL (`oltp` e `dw`)
 
-O ecossistema organiza os dados brutos em visões analíticas focadas em responder:
+O banco utiliza dois esquemas lógicos desacoplados no PostgreSQL:
 
-* **Real vs. Estimado (Nowcasting):** Acompanhamento simultâneo de casos notificados e projeções corrigidas no tempo, apontando represamento de resultados laboratoriais.
-* **Sazonalidade e Identificação de Picos:** Rastreio exato da semana e do mês em que a transmissão explode (ex.: picos históricos concentrados entre as semanas 10 e 15).
-* **Correlação Climática x Vetor:** Como oscilações na temperatura média e faixas de umidade do ar antecipam ou freiam o ciclo biológico do *Aedes aegypti*.
-* **Semáforo Epidemiológico (Níveis de Alerta):** Monitoramento das transições de risco sanitário:
-  * 🟢 **Verde:** Nível basal e monitoramento de rotina.
-  * 🟡 **Amarelo:** Alerta precoce por condições climáticas favoráveis.
-  * 🟠 **Laranja:** Transmissão sustentada em expansão ($R_t > 1$).
-  * 🔴 **Vermelho:** Epidemia declarada com alta sobrecarga assistencial.
-* **Indicadores Dinâmicos de Curto Prazo:** Comparativo semana-a-semana (*delta WoW*), incidência por 100 mil habitantes e ritmo de contágio da última semana monitorada.
+1. **Schema `oltp` (Transacional em 3FN):**
+   * `tb_municipio`: Cadastro municipal e demográfico.
+   * `tb_notificacao_dengue`: Notificações semanais por doença com Nowcasting.
+   * `tb_monitoramento_climatico`: Dados de temperatura e umidade.
+   * `tb_alerta_epidemiologico`: Níveis de alerta e transmissão.
+
+2. **Schema `dw` (Star Schema Dimensional):**
+   * `dim_tempo`, `dim_municipio`, `dim_alerta`, `dim_clima`, `dim_doenca`.
+   * `fato_casos_dengue`: Métricas de casos, estimativas, incidência e gap de subnotificação.
+
+3. **SQL Views Analíticas Prontas (`dw.vw_*`):**
+   * **`vw_star_schema_completo`**: Visão desnormalizada (todas as dimensões conectadas aos fatos). Ideal para conexão direta no Power BI.
+   * **`vw_sazonalidade_mensal`**: Total de casos e média móvel por mês e ano.
+   * **`vw_correlacao_clima_casos`**: Casos agregados por faixa de temperatura e umidade.
+   * **`vw_alertas_criticos`**: Notificações em nível Laranja e Vermelho com $R_t > 1$.
 
 ---
 
-## Instalação e Execução
+## 🚀 Instalação e Execução Rápida
 
-### Requisitos
-* Python >= 3.13
-* [uv](https://docs.astral.sh/uv/) instalado
+### Pré-requisitos
+* **Docker** e **Docker Compose**
+* **Python >= 3.13** e [uv](https://docs.astral.sh/uv/)
 
 ```bash
+# 1. Clonar o repositório
 git clone https://github.com/Arkmedess/DataDengue.git
 cd DataDengue
+
+# 2. Instalar dependências no ambiente virtual
 uv sync
+
+# 3. Subir o PostgreSQL no Docker
+docker compose up -d
+
+# 4. Executar carga completa de dados (Dengue, Chikungunya e Zika)
+uv run python main.py --all-diseases
 ```
 
-### 1. Executar o Pipeline de Dados
-Processa a coleta na API, popula o banco transacional relacional (OLTP em 3FN), gera o Data Warehouse (Star Schema) e exporta os datasets para `data/dw/`:
-```bash
-# Execução padrão (ano 2025, Dengue, Jundiaí)
-uv run python main.py
+---
 
-# Executar com arboviroses combinadas (Dengue, Chikungunya e Zika)
+## ⌨️ Comandos da CLI & Utilitários (Tabela Completa)
+
+A aplicação pode ser operada via linha de comando (`main.py`) com flags ou subcomandos:
+
+| Comando / Flag | Argumentos | Valor Padrão | Descrição |
+| :--- | :--- | :--- | :--- |
+| `python main.py` | N/A | Ano 2025, Dengue | Executa o pipeline padrão (coleta $\rightarrow$ OLTP $\rightarrow$ DW $\rightarrow$ CSVs). |
+| `--all-diseases` | N/A | `False` | Coleta e consolida as 3 arboviroses (Dengue, Chikungunya e Zika) em lote. |
+| `--diseases` | `<d1> <d2>...` | `None` | Seleciona arboviroses específicas (ex.: `--diseases dengue chikungunya`). |
+| `--disease` | `dengue\|chikungunya\|zika` | `dengue` | Consulta uma única doença específica. |
+| `--start-year` | `YYYY` (2010–2026) | `2025` | Ano inicial da série histórica (com autocorreção). |
+| `--end-year` | `YYYY` (2010–2026) | `2025` | Ano final da série histórica. |
+| `--geocode` | Código IBGE (7 dígitos) | `3525904` | Município a monitorar (padrão: Jundiaí/SP). |
+| `--ui` | N/A | `False` | Executa o pipeline e inicia o Streamlit automaticamente no navegador. |
+| `--tui` ou `-i` | N/A | `False` | Inicia o menu interativo amigável no terminal (TUI). |
+| **`status`** | Subcomando | N/A | Exibe status da conexão PostgreSQL, contagem de registros em `oltp`/`dw`, períodos e CSVs gerados. |
+| **`summary`** | `--year`, `--limit`, `--json` | Ano atual | Exibe resumo epidemiológico anual/semanal formatado no terminal (ou em JSON para scripts). |
+| **`clean`** | `--all`, `-y` | Limpa DW | Trunca as tabelas dimensionais no PostgreSQL e apaga os CSVs. Com `--all`, reseta também o `oltp`. |
+| **`tui`** | Subcomando | N/A | Abre a interface de menu navegável por teclado no terminal. |
+
+### Exemplos Práticos:
+```bash
+# Ingestão de 2 anos para todas as arboviroses
 uv run python main.py --all-diseases --start-year 2024 --end-year 2025
 
-# Ou selecionar apenas duas (ex.: Dengue + Chikungunya)
-uv run python main.py --diseases dengue chikungunya --start-year 2024 --end-year 2025
+# Resumo epidemiológico em formato JSON
+uv run python main.py summary --year 2025 --json
 
-# Executar e abrir o Streamlit ao final
-uv run python main.py --ui
-```
-
-### 2. Painel Interativo no Terminal (TUI)
-Para abrir o menu interativo com opções de carga, visualização e limpeza:
-```bash
-uv run python main.py --tui
-# ou
-uv run python main.py tui
-```
-
-### 3. Utilitários de Linha de Comando (CLI)
-```bash
-# Verificar status dos bancos de dados, período e arquivos gerados
+# Verificar a saúde do banco e tabelas geradas
 uv run python main.py status
 
-# Resumo epidemiológico anual no terminal (ou com --json para scripts)
-uv run python main.py summary
-uv run python main.py summary --year 2025 --limit 10
-
-# Limpar Data Warehouse e CSVs gerados (com -y para bypass de confirmação)
+# Limpeza e reset do Data Warehouse
 uv run python main.py clean -y
-
-# Reset total (limpa DW e banco transacional OLTP)
-uv run python main.py clean --all -y
 ```
 
-### 4. Guia Rápido de Opções e Flags da CLI
+---
 
-| Flag / Comando | Argumentos | Padrão | Descrição |
-| :--- | :--- | :--- | :--- |
-| `--all-diseases` | N/A | `False` | Coleta e carrega as 3 arboviroses (Dengue, Chikungunya e Zika) em lote. |
-| `--diseases` | `<d1> <d2>...` | `None` | Permite selecionar múltiplas doenças (ex.: `--diseases dengue chikungunya`). |
-| `--disease` | `dengue\|chikungunya\|zika` | `dengue` | Consulta uma única arbovirose. |
-| `--start-year` | `YYYY` (2010 a 2026) | `2025` | Ano inicial da série histórica (auto-corrige se invertido). |
-| `--end-year` | `YYYY` (2010 a 2026) | `2025` | Ano final da série histórica. |
-| `--geocode` | Código IBGE | `3525904` | Município a monitorar (padrão: Jundiaí/SP). |
-| `--ui` | N/A | `False` | Abre a interface analítica Streamlit no navegador ao concluir a carga. |
-| `--tui` ou `-i` | N/A | `False` | Abre o menu interativo no terminal (TUI). |
-| `status` | Subcomando | N/A | Exibe saúde dos bancos SQLite, períodos, tamanho em KB e CSVs gerados. |
-| `summary` | `--year`, `--limit`, `--json` | N/A | Exibe resumo epidemiológico anual ou semanal diretamente no terminal. |
-| `clean` | `--all`, `-y` | N/A | Remove tabelas analíticas do DW (ou reset total com `--all`). |
+## 🗄️ Inspeção no JetBrains DataGrip
 
-### 5. Rodar os Testes
+Para visualizar esquemas, tabelas e diagramas no **DataGrip**:
+1. Crie um novo Data Source: **PostgreSQL**.
+2. Configure:
+   * **Host:** `localhost` | **Port:** `5432`
+   * **Database:** `datadengue` | **User:** `postgres` | **Password:** `postgres`
+3. Na aba **Schemas**, marque as opções **`oltp`** e **`dw`**.
+4. Clique com o botão direito no schema `dw` $\rightarrow$ **Diagrams $\rightarrow$ Show Diagram...** para visualizar o modelo estrela completo.
+
+---
+
+## 📊 Visualização no DataGrid (Streamlit)
+
+O projeto inclui um dashboard com visualização interativa de dados em grade:
+```bash
+uv run streamlit run src/dashboard.py
+```
+- Acesse a aba **`🔍 DataGrid Inspector`** para navegar por qualquer tabela do `dw` ou `oltp`, ordenar colunas, aplicar filtros e exportar recortes.
+
+---
+
+## 📈 Power BI (.pbix) & Integração
+
+Para construir o painel no Power BI Desktop:
+1. **Conexão Direta ao PostgreSQL:** Obter Dados $\rightarrow$ Banco de Dados PostgreSQL (`localhost:5432`, banco `datadengue`) $\rightarrow$ selecione a view **`dw.vw_star_schema_completo`**.
+2. **Conexão via CSVs:** Obter Dados $\rightarrow$ Pasta `data/dw/` com os 6 datasets prontos.
+3. **Medidas DAX:** Copie as 16 fórmulas prontas disponíveis em [dax/medidas_power_bi.dax](dax/medidas_power_bi.dax).
+
+> 📖 **Guias dedicados:**
+> * Passo a passo no Windows e WSL 2: [docs/GUIA_WINDOWS_WSL.md](docs/GUIA_WINDOWS_WSL.md)
+> * Guia de montagem do painel no Power BI: [docs/GUIA_POWER_BI.md](docs/GUIA_POWER_BI.md)
+> * Dicionário de dados da modelagem dimensional: [docs/MODELAGEM_DIMENSIONAL.md](docs/MODELAGEM_DIMENSIONAL.md)
+
+---
+
+## 🧪 Testes Automatizados
+
+A suíte de testes valida a integridade do banco de dados, idempotência, resiliência a dados corrompidos e consistência do ETL diretamente contra o PostgreSQL:
 ```bash
 uv run pytest
 ```
 
 ---
 
-## Estrutura do Projeto
-
-* `main.py`: Orquestrador ponta a ponta (coleta, OLTP, DW e abertura da interface).
-* `sql/`: Scripts DDL relacionais (`01_create_transacional_oltp.sql`), dimensionais (`02_create_dw_star_schema.sql`) e consultas analíticas (`03_queries_analiticas.sql`).
-* `src/api_service.py`: Requisição à API InfoDengue e tratamento inicial.
-* `src/cli/`: Utilitários de terminal, inspeção de status, resumo e TUI interativa.
-* `src/models.py`: Modelos Pydantic para parâmetros de requisição e validação de schema.
-* `src/database.py`: Conexão com banco e execução de scripts SQL.
-* `src/oltp_loader.py`: Carga relacional transacional em 3FN.
-* `src/etl_pipeline.py`: Pipeline dimensional para carga do Star Schema e exportação de CSVs.
-* `src/dashboard.py`: Dashboard analítico interativo em Streamlit.
-* `tests/`: Suíte de testes automatizados do pipeline.
-* `data/`: Armazenamento local dos bancos SQLite e dos CSVs dimensionais prontos para Power BI.
-
----
-
-## Prints do Dashboard
+## 📸 Demonstração da Interface
 
 <img width="1836" height="698" alt="Visão Geral do Painel" src="https://github.com/user-attachments/assets/0194105f-4906-4e3a-a095-9825f9151dd7" />
 

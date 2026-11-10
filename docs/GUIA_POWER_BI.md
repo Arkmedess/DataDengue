@@ -19,7 +19,7 @@ Os arquivos dimensionais foram gerados em formato CSV estruturado com codificaç
    * `dim_clima.csv`
 4. Na tela de prévia, selecione **Carregar (Load)**.
 
-> **Dica Alternativa:** Você também pode conectar via banco SQLite instalando o driver ODBC para SQLite (`SQLite3 ODBC Driver`) ou conectando diretamente à view `vw_star_schema_completo`. No entanto, a importação dos 6 CSVs dimensionais é o método mais rápido e 100% nativo.
+> **Dica de Conexão Direta ao PostgreSQL:** Você também pode conectar diretamente ao banco PostgreSQL sem usar arquivos intermediários: no Power BI, vá em **Obter Dados -> Mais... -> Banco de Dados PostgreSQL**, informe `localhost:5432`, banco `datadengue`, usuário `postgres` e selecione diretamente a view **`dw.vw_star_schema_completo`** (tabela única desnormalizada com todas as métricas) ou as tabelas do schema **`dw`**. Para detalhes no Windows/WSL, consulte o [GUIA_WINDOWS_WSL.md](GUIA_WINDOWS_WSL.md).
 
 ---
 
