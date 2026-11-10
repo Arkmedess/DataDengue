@@ -35,9 +35,10 @@ def init_oltp_db(db_path: Path | str) -> None:
 
 
 def init_dw_db(db_path: Path | str) -> None:
-    """Inicializa as tabelas dimensionais do Data Warehouse (Star Schema)."""
+    """Inicializa as tabelas dimensionais e views analíticas do Data Warehouse (Star Schema)."""
     conn = get_db_connection(db_path)
     try:
         execute_sql_script(conn, SQL_DIR / "02_create_dw_star_schema.sql")
+        execute_sql_script(conn, SQL_DIR / "04_create_views.sql")
     finally:
         conn.close()

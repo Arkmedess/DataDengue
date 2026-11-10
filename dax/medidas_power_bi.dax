@@ -1,0 +1,104 @@
+-- ============================================================================
+-- PROJETO INTEGRADOR FATEC - DESAFIO DE DADOS / BUSINESS INTELLIGENCE
+-- CATÁLOGO DE MEDIDAS DAX PARA POWER BI (DATADENGUE)
+-- ============================================================================
+-- Copie e cole estas fórmulas diretamente no Power BI Desktop.
+-- Recomenda-se criar uma tabela vazia chamada '_Medidas' para organizá-las.
+-- ============================================================================
+
+-- 1. TOTAL DE CASOS NOTIFICADOS (REAIS)
+Total Casos = 
+SUM(fato_casos_dengue[casos_notificados])
+
+-- 2. TOTAL DE CASOS ESTIMADOS (NOWCASTING FIOCRUZ)
+Total Estimado = 
+SUM(fato_casos_dengue[casos_estimados])
+
+-- 3. DIFERENÇA / GAP DE NOWCASTING (SUBNOTIFICAÇÃO TEMPORÁRIA)
+Gap Subnotificacao = 
+[Total Estimado] - [Total Casos]
+
+-- 4. PERCENTUAL DE SUBNOTIFICAÇÃO TEMPORÁRIA
+Percentual Subnotificacao = 
+DIVIDE([Gap Subnotificacao], [Total Casos], 0)
+
+-- 5. TOTAL DE CASOS CONFIRMADOS
+Total Confirmados = 
+SUM(fato_casos_dengue[casos_confirmados])
+
+-- 6. TOTAL DE CASOS PROVÁVEIS
+Total Provaveis = 
+SUM(fato_casos_dengue[casos_provaveis])
+
+-- 7. TAXA DE INCIDÊNCIA POR 100 MIL HABITANTES
+-- Padrão epidemiológico internacional do Ministério da Saúde e OMS
+Taxa Incidencia 100k = 
+DIVIDE(
+    [Total Casos],
+    MAX(dim_municipio[populacao]),
+    0
+) * 100000
+
+-- 8. TAXA DE TRANSMISSÃO EFETIVA MÉDIA (Rt)
+-- Valores acima de 1.0 indicam surto em expansão
+Rt Medio = 
+AVERAGE(fato_casos_dengue[taxa_rt])
+
+-- 9. PROBABILIDADE MÉDIA DE Rt > 1
+Probabilidade Rt Maior 1 = 
+AVERAGE(fato_casos_dengue[probabilidade_rt_maior_1])
+
+-- 10. MÉDIA MÓVEL DE 4 SEMANAS (EPIDEMIOLÓGICA)
+-- Suaviza ruídos e atrasos semanais de notificação
+Media Movel 4 Semanas = 
+CALCULATE(
+    [Total Casos],
+    DATESINPERIOD(
+        dim_tempo[data_inicio_semana],
+        LASTDATE(dim_tempo[data_inicio_semana]),
+        -28,
+        DAY
+    )
+) / 4
+
+-- 11. CASOS NA SEMANA ANTERIOR (SEMANA EPIDEMIOLÓGICA ANTERIOR)
+Casos Semana Anterior = 
+CALCULATE(
+    [Total Casos],
+    DATEADD(dim_tempo[data_inicio_semana], -7, DAY)
+)
+
+-- 12. VARIAÇÃO SEMANAL WoW (WEEK-OVER-WEEK %)
+Variacao Semanal WoW % = 
+VAR CasosAtual = [Total Casos]
+VAR CasosAnt = [Casos Semana Anterior]
+RETURN
+DIVIDE(CasosAtual - CasosAnt, CasosAnt, 0)
+
+-- 13. TEMPERATURA MÉDIA OBSERVADA (°C)
+Temperatura Media = 
+AVERAGE(fato_casos_dengue[temp_media_semana])
+
+-- 14. UMIDADE MÉDIA OBSERVADA (%)
+Umidade Media = 
+AVERAGE(fato_casos_dengue[umid_media_semana])
+
+-- 15. CONTAGEM DE SEMANAS EM ALERTA CRÍTICO (LARANJA OU VERMELHO)
+Semanas Alerta Critico = 
+CALCULATE(
+    COUNTROWS(fato_casos_dengue),
+    dim_alerta[nivel_alerta] IN {3, 4}
+)
+
+-- 16. FORMATO CONDICIONAL DINÂMICO PARA CARTÃO DE RISCO (COR HEXADECIMAL)
+Cor Status Alerta = 
+VAR Nivel = SELECTEDVALUE(dim_alerta[nivel_alerta], 0)
+RETURN
+SWITCH(
+    Nivel,
+    1, "#2CA02C", -- Verde
+    2, "#FFD700", -- Amarelo
+    3, "#FFA500", -- Laranja
+    4, "#FF4B4B", -- Vermelho
+    "#333333"    -- Padrão
+)
