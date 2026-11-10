@@ -54,11 +54,24 @@ alertas_selecionados = st.sidebar.multiselect(
     default=alertas_disponiveis,
 )
 
+# Interação 3: Dropdown de Múltipla Escolha para Doença (quando disponível)
+if "doenca" in df.columns:
+    doencas_disponiveis = sorted(df["doenca"].unique().tolist())
+    doencas_selecionadas = st.sidebar.multiselect(
+        "3. Filtrar por Arbovirose:",
+        options=doencas_disponiveis,
+        default=doencas_disponiveis,
+    )
+    filtro_doenca = df["doenca"].isin(doencas_selecionadas)
+else:
+    filtro_doenca = True
+
 # Aplicando os filtros no DataFrame
 df_filtrado = df[
     (df["SE"] >= semanas_selecionadas[0])
     & (df["SE"] <= semanas_selecionadas[1])
     & (df["alerta_status"].isin(alertas_selecionados))
+    & filtro_doenca
 ]
 
 # LAYOUT PRINCIPAL (Dashboard)
@@ -210,9 +223,40 @@ with tab_alertas:
     else:
         st.info("Coluna 'nivel' nao encontrada na base para gerar a serie temporal.")
 
-# --- VISUALIZAÇÃO DOS DADOS BRUTOS ---
-with st.expander("📂 Ver Tabela de Dados (Filtrada)"):
+# --- VISUALIZAÇÃO DOS DADOS VIA DATAGRID ---
+st.divider()
+st.subheader("📋 Visualização Interativa via DataGrid")
+tab_grid_filtrado, tab_grid_dw = st.tabs(["📊 Dados Filtrados da Aplicação", "🗄️ Tabelas do Data Warehouse (Star Schema)"])
+
+with tab_grid_filtrado:
+    st.markdown("Visualização tabular dinâmica com ordenação de colunas, busca e paginação:")
     st.dataframe(df_ordenado, use_container_width=True, hide_index=True)
+    st.caption(f"Exibindo {len(df_ordenado)} registros filtrados.")
+
+with tab_grid_dw:
+    import sqlite3
+    caminho_dw = Path(__file__).resolve().parent.parent / "data" / "dw_dengue.db"
+    if caminho_dw.exists():
+        conn = sqlite3.connect(caminho_dw)
+        tabelas_dw = [
+            "fato_casos_dengue",
+            "dim_tempo",
+            "dim_doenca",
+            "dim_municipio",
+            "dim_alerta",
+            "dim_clima",
+        ]
+        tabela_escolhida = st.selectbox(
+            "Selecione a tabela do Data Warehouse para inspecionar no DataGrid:",
+            tabelas_dw,
+        )
+        df_dw_table = pd.read_sql_query(f"SELECT * FROM {tabela_escolhida}", conn)
+        conn.close()
+        st.dataframe(df_dw_table, use_container_width=True, hide_index=True)
+        st.caption(f"Tabela selecionada: **{tabela_escolhida}** | Total de registros: **{len(df_dw_table)}**")
+    else:
+        st.info("Banco analítico dw_dengue.db ainda não encontrado. Execute 'python main.py' para gerar o Data Warehouse.")
+
 
 st.subheader("Dicionario de Dados")
 st.markdown("Descricao dos campos presentes na base de dados.")
