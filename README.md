@@ -52,16 +52,41 @@ uv sync
 ### 1. Executar o Pipeline de Dados
 Processa a coleta na API, popula o banco transacional relacional (OLTP em 3FN), gera o Data Warehouse (Star Schema) e exporta os datasets para `data/dw/`:
 ```bash
+# Execução padrão (ano 2025, Dengue, Jundiaí)
 uv run python main.py
-```
 
-### 2. Abrir o Dashboard Interativo (Streamlit)
-Para rodar o pipeline e abrir imediatamente a interface analítica:
-```bash
+# Personalizar anos e arbovirose (dengue, chikungunya ou zika)
+uv run python main.py --start-year 2020 --end-year 2026 --disease dengue
+
+# Executar e abrir o Streamlit ao final
 uv run python main.py --ui
 ```
 
-### 3. Rodar os Testes
+### 2. Painel Interativo no Terminal (TUI)
+Para abrir o menu interativo com opções de carga, visualização e limpeza:
+```bash
+uv run python main.py --tui
+# ou
+uv run python main.py tui
+```
+
+### 3. Utilitários de Linha de Comando (CLI)
+```bash
+# Verificar status dos bancos de dados, período e arquivos gerados
+uv run python main.py status
+
+# Resumo epidemiológico anual no terminal (ou com --json para scripts)
+uv run python main.py summary
+uv run python main.py summary --year 2025 --limit 10
+
+# Limpar Data Warehouse e CSVs gerados (com -y para bypass de confirmação)
+uv run python main.py clean -y
+
+# Reset total (limpa DW e banco transacional OLTP)
+uv run python main.py clean --all -y
+```
+
+### 4. Rodar os Testes
 ```bash
 uv run pytest
 ```
@@ -73,6 +98,7 @@ uv run pytest
 * `main.py`: Orquestrador ponta a ponta (coleta, OLTP, DW e abertura da interface).
 * `sql/`: Scripts DDL relacionais (`01_create_transacional_oltp.sql`), dimensionais (`02_create_dw_star_schema.sql`) e consultas analíticas (`03_queries_analiticas.sql`).
 * `src/api_service.py`: Requisição à API InfoDengue e tratamento inicial.
+* `src/cli/`: Utilitários de terminal, inspeção de status, resumo e TUI interativa.
 * `src/models.py`: Modelos Pydantic para parâmetros de requisição e validação de schema.
 * `src/database.py`: Conexão com banco e execução de scripts SQL.
 * `src/oltp_loader.py`: Carga relacional transacional em 3FN.
