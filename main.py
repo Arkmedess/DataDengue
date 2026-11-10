@@ -11,14 +11,12 @@ from src.cli import (
     print_status,
     print_summary,
 )
-from src.database import init_dw_db, init_oltp_db
+from src.database import get_engine, init_dw_db, init_oltp_db
 from src.etl_pipeline import run_etl
 from src.oltp_loader import load_oltp_from_raw_df
 
 PROJECT_ROOT = Path(__file__).resolve().parent
 DATA_DIR = PROJECT_ROOT / "data"
-OLTP_DB = DATA_DIR / "oltp_dengue.db"
-DW_DB = DATA_DIR / "dw_dengue.db"
 DW_CSV_DIR = DATA_DIR / "dw"
 
 
@@ -30,7 +28,7 @@ def execute_pipeline(
     start_streamlit: bool = False,
     only_streamlit: bool = False,
 ) -> None:
-    """Executa o pipeline completo para uma ou mais doenças ou inicia o Streamlit."""
+    """Executa o pipeline completo no PostgreSQL ou inicia o Streamlit."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     DW_CSV_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -39,20 +37,21 @@ def execute_pipeline(
         subprocess.run([sys.executable, "-m", "streamlit", "run", "src/dashboard.py"])
         return
 
-    # Garante ordenação cronológica se o usuário inverter os anos
     if start_year > end_year:
         print(f"[AVISO] Anos invertidos ({start_year} > {end_year}). Ajustando automaticamente...")
         start_year, end_year = end_year, start_year
 
-    # Validação e higienização da lista de doenças
     valid_diseases = {"dengue", "chikungunya", "zika"}
     sanitized_diseases = [d.strip().lower() for d in diseases if d.strip().lower() in valid_diseases]
     if not sanitized_diseases:
         sanitized_diseases = ["dengue"]
 
     print("=" * 70)
-    print("PROJETO INTEGRADOR FATEC - DATA-TO-INSIGHT JOURNEY (DATADENGUE)")
+    print("PROJETO INTEGRADOR FATEC - DATA-TO-INSIGHT JOURNEY (POSTGRESQL)")
     print("=" * 70)
+
+    # Conexão com PostgreSQL
+    engine = get_engine()
 
     # 1. Coleta na API InfoDengue
     print(
@@ -70,7 +69,7 @@ def execute_pipeline(
     )
 
     if df_raw.empty:
-        print("\n[AVISO]: Nenhum dado retornado para os parâmetros informados. Verifique se a cidade possui notificações no período.")
+        print("\n[AVISO]: Nenhum dado retornado para os parâmetros informados.")
         return
 
     print(f"   -> Total de {len(df_raw)} registros epidemiológicos brutos obtidos.")
@@ -80,27 +79,28 @@ def execute_pipeline(
     if not df_polish.empty:
         export_csv(df_polish, file_name="Dengue_Jundiai.csv")
 
-    # 3. Inicialização e Carga no Banco Transacional (OLTP)
-    print("\n2. Inicializando Banco de Dados Transacional (OLTP)...")
-    init_oltp_db(OLTP_DB)
-    oltp_stats = load_oltp_from_raw_df(df_raw, OLTP_DB, geocode=geocode)
-    print(f"   -> Banco OLTP populado em: {OLTP_DB.name}")
+    # 3. Inicialização e Carga no Banco Transacional PostgreSQL (Schema oltp)
+    print("\n2. Inicializando Banco de Dados Transacional (PostgreSQL schema: oltp)...")
+    init_oltp_db(engine)
+    oltp_stats = load_oltp_from_raw_df(df_raw, engine=engine, geocode=geocode)
+    print("   -> Schema oltp populado com sucesso no PostgreSQL.")
     print(f"   -> {oltp_stats['notificacoes_inseridas']} notificações registradas em 3FN.")
     if oltp_stats.get("erros_ignorados", 0) > 0:
-        print(f"   -> {oltp_stats['erros_ignorados']} registros corrompidos/inválidos prevenidos e ignorados.")
+        print(f"   -> {oltp_stats['erros_ignorados']} registros corrompidos prevenidos e ignorados.")
 
-    # 4. Pipeline de ETL Dimensional (Star Schema)
-    print("\n3. Executando Pipeline de ETL Dimensional (Star Schema)...")
-    init_dw_db(DW_DB)
-    etl_summary = run_etl(OLTP_DB, DW_DB, export_csv_dir=DW_CSV_DIR)
-    print(f"   -> Data Warehouse atualizado em: {DW_DB.name}")
+    # 4. Pipeline de ETL Dimensional no PostgreSQL (Schema dw)
+    print("\n3. Executando Pipeline de ETL Dimensional (PostgreSQL schema: dw)...")
+    init_dw_db(engine)
+    etl_summary = run_etl(engine=engine, export_csv_dir=DW_CSV_DIR)
+    print("   -> Schema dw atualizado com Star Schema e Views no PostgreSQL.")
     print(f"   -> Fatos carregados: {etl_summary['fatos_carregados']}")
     print(f"   -> Dimensões geradas: {etl_summary['dimensoes_carregadas']}")
     print(f"   -> Arquivos CSV para Power BI exportados em: {DW_CSV_DIR}/")
 
     print("\n" + "=" * 70)
-    print("BACKEND EXECUTADO COM SUCESSO!")
-    print("Tabelas prontas para conexão no Power BI Desktop e modelagem DAX.")
+    print("POSTGRESQL POPULADO COM SUCESSO!")
+    print("Host: localhost:5432 | Database: datadengue | User: postgres")
+    print("Schemas: oltp (3FN) e dw (Star Schema + Views)")
     print("=" * 70)
 
     # 5. Opcional: Abertura do Dashboard Streamlit
@@ -111,11 +111,10 @@ def execute_pipeline(
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="DataDengue - CLI e Pipeline de Dados Epidemiológicos",
+        description="DataDengue - Pipeline de Dados Epidemiológicos no PostgreSQL",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
 
-    # Argumentos principais para execução direta
     parser.add_argument(
         "--ui",
         action="store_true",
@@ -163,9 +162,9 @@ def main() -> None:
         help="Código IBGE do município (padrão: 3525904 - Jundiaí)",
     )
 
-    # Subcomandos de utilidades
+    # Subcomandos
     subparsers = parser.add_subparsers(dest="command", help="Comandos utilitários")
-    subparsers.add_parser("status", help="Exibe status dos bancos OLTP, DW e CSVs")
+    subparsers.add_parser("status", help="Exibe status do banco PostgreSQL, tabelas e CSVs")
 
     summary_parser = subparsers.add_parser(
         "summary", help="Exibe resumo epidemiológico por ano ou semanas"
@@ -181,12 +180,12 @@ def main() -> None:
     )
 
     clean_parser = subparsers.add_parser(
-        "clean", help="Limpa o Data Warehouse ou todo o armazenamento"
+        "clean", help="Limpa o schema dw ou todo o banco PostgreSQL"
     )
     clean_parser.add_argument(
         "--all",
         action="store_true",
-        help="Limpa também o banco transacional OLTP e cache legado",
+        help="Limpa também o schema transacional oltp",
     )
     clean_parser.add_argument(
         "-y",
@@ -208,15 +207,14 @@ def main() -> None:
         print_summary(DATA_DIR, as_json=args.json, year=args.year, limit=args.limit)
     elif args.command == "clean":
         if not args.yes:
-            tipo = "TOTAL (OLTP + DW)" if args.all else "do Data Warehouse (DW)"
+            tipo = "TOTAL (oltp + dw no PostgreSQL)" if args.all else "do Data Warehouse (schema dw no PostgreSQL)"
             confirm = input(f"Confirma a limpeza {tipo}? (s/N): ").strip().lower()
             if confirm != "s":
                 print("Operação cancelada.")
                 return
         rem = clean_storage(DATA_DIR, clean_oltp=args.all)
-        print(f"Limpeza concluída! Removidos: {', '.join(rem) or 'nenhum arquivo'}")
+        print(f"Limpeza concluída! Removidos: {', '.join(rem) or 'nenhum'}")
     else:
-        # Define quais doenças consultar
         if args.all_diseases:
             selected_diseases = ["dengue", "chikungunya", "zika"]
         elif args.diseases:

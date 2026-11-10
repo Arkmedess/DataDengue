@@ -1,16 +1,41 @@
-import sqlite3
 import pandas as pd
 import pytest
+from sqlalchemy import text
 
-from src.database import init_dw_db, init_oltp_db
+from src.database import get_engine, init_dw_db, init_oltp_db
 from src.etl_pipeline import run_etl
 from src.oltp_loader import load_oltp_from_raw_df
 
 
 @pytest.fixture
-def populated_oltp_db(tmp_path):
-    oltp_file = tmp_path / "oltp_source.db"
-    init_oltp_db(oltp_file)
+def populated_oltp_db():
+    engine = get_engine()
+    init_oltp_db(engine)
+    init_dw_db(engine)
+
+    # Limpa dados anteriores
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                TRUNCATE TABLE 
+                    dw.fato_casos_dengue, 
+                    dw.dim_tempo, 
+                    dw.dim_municipio, 
+                    dw.dim_alerta, 
+                    dw.dim_clima, 
+                    dw.dim_doenca 
+                CASCADE;
+                TRUNCATE TABLE 
+                    oltp.tb_notificacao_dengue, 
+                    oltp.tb_monitoramento_climatico, 
+                    oltp.tb_alerta_epidemiologico, 
+                    oltp.tb_unidade_notificadora, 
+                    oltp.tb_municipio 
+                CASCADE;
+                """
+            )
+        )
 
     sample_data = pd.DataFrame(
         [
@@ -70,18 +95,16 @@ def populated_oltp_db(tmp_path):
             },
         ]
     )
-    load_oltp_from_raw_df(sample_data, oltp_file, geocode=3525904)
-    return oltp_file
+    load_oltp_from_raw_df(sample_data, engine, geocode=3525904)
+    return engine
 
 
 def test_etl_generates_star_schema_and_csvs(tmp_path, populated_oltp_db):
-    dw_file = tmp_path / "dw_test.db"
+    engine = populated_oltp_db
     csv_dir = tmp_path / "csv_export"
     csv_dir.mkdir()
 
-    init_dw_db(dw_file)
-
-    summary = run_etl(populated_oltp_db, dw_file, export_csv_dir=csv_dir)
+    summary = run_etl(engine, export_csv_dir=csv_dir)
 
     assert summary["fatos_carregados"] == 2
     assert summary["dimensoes_carregadas"]["dim_tempo"] == 2
@@ -89,18 +112,16 @@ def test_etl_generates_star_schema_and_csvs(tmp_path, populated_oltp_db):
     assert summary["dimensoes_carregadas"]["dim_alerta"] >= 4
     assert summary["dimensoes_carregadas"]["dim_clima"] >= 1
 
-    # Valida no banco DW
-    conn = sqlite3.connect(dw_file)
-    cur = conn.cursor()
+    # Valida no schema dw do PostgreSQL
+    with engine.connect() as conn:
+        count_fato = conn.execute(text("SELECT COUNT(*) FROM dw.fato_casos_dengue")).scalar()
+        assert count_fato == 2
 
-    cur.execute("SELECT COUNT(*) FROM fato_casos_dengue")
-    assert cur.fetchone()[0] == 2
-
-    # Verifica cálculo de nowcasting gap (150 - 120 = 30)
-    cur.execute("SELECT diferenca_nowcasting FROM fato_casos_dengue WHERE casos_notificados = 120")
-    assert cur.fetchone()[0] == 30.0
-
-    conn.close()
+        # Verifica cálculo de nowcasting gap (150 - 120 = 30)
+        gap = conn.execute(
+            text("SELECT diferenca_nowcasting FROM dw.fato_casos_dengue WHERE casos_notificados = 120")
+        ).scalar()
+        assert float(gap) == 30.0
 
     # Valida arquivos CSV gerados para o Power BI
     assert (csv_dir / "dim_tempo.csv").exists()

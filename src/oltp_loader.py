@@ -1,11 +1,11 @@
 import math
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from sqlalchemy import Engine, text
 
-from src.database import get_db_connection
+from src.database import get_engine
 
 
 def _clean_float(val: Any) -> float | None:
@@ -35,7 +35,6 @@ def _clean_date_str(val: Any) -> str | None:
         return None
     s = str(val).strip()
     try:
-        # Tenta interpretar data YYYY-MM-DD
         dt = datetime.strptime(s[:10], "%Y-%m-%d")
         return dt.strftime("%Y-%m-%d")
     except ValueError:
@@ -43,23 +42,22 @@ def _clean_date_str(val: Any) -> str | None:
 
 
 def load_oltp_from_raw_df(
-    df_raw: pd.DataFrame, db_path: Path | str, geocode: int = 3525904
+    df_raw: pd.DataFrame, engine: Engine | None = None, geocode: int = 3525904
 ) -> dict[str, int]:
-    """Carga transacional resiliente e idempotente normalizada em 3FN para o banco OLTP."""
+    """Carga transacional resiliente e idempotente normalizada em 3FN no PostgreSQL (schema oltp)."""
     if df_raw.empty:
         return {"municipios_inseridos": 0, "notificacoes_inseridas": 0, "erros_ignorados": 0}
 
-    conn = get_db_connection(db_path)
+    eng = engine or get_engine()
 
-    # Identifica nome do município e população de forma defensiva
     first_row = df_raw.iloc[0]
     nome_mun = str(first_row.get("municipio_nome", "Jundiaí")) if pd.notna(first_row.get("municipio_nome")) else "Jundiaí"
     populacao = _clean_int(first_row.get("pop", 459789), default=459789)
 
     erros_ignorados = 0
-    notificacoes_rows = []
-    clima_rows_dict: dict[tuple[int, int], tuple] = {}
-    alerta_rows = []
+    notificacoes_rows: list[dict[str, Any]] = []
+    clima_rows_dict: dict[tuple[int, int], dict[str, Any]] = {}
+    alerta_rows: list[dict[str, Any]] = []
 
     for _, row in df_raw.iterrows():
         try:
@@ -103,140 +101,158 @@ def load_oltp_from_raw_df(
             notif_accum = _clean_int(row.get("notif_accum_year", 0))
 
             notificacoes_rows.append(
-                (
-                    geocode,
-                    doenca,
-                    data_ini,
-                    se_val,
-                    semana_epidem,
-                    ano_epidem,
-                    casos,
-                    casos_est,
-                    casconf,
-                    casprov,
-                )
+                {
+                    "id_municipio": geocode,
+                    "doenca": doenca,
+                    "data_inicio_semana": data_ini,
+                    "semana_ano": se_val,
+                    "semana_epidem": semana_epidem,
+                    "ano_epidem": ano_epidem,
+                    "casos_notificados": casos,
+                    "casos_estimados": casos_est,
+                    "casos_confirmados": casconf,
+                    "casos_provaveis": casprov,
+                }
             )
 
-            # Clima é único por município e semana_ano (desduplica entre doenças)
             clima_key = (geocode, se_val)
             if clima_key not in clima_rows_dict:
-                clima_rows_dict[clima_key] = (
-                    geocode,
-                    data_ini,
-                    se_val,
-                    temp_min,
-                    temp_med,
-                    temp_max,
-                    umid_min,
-                    umid_med,
-                    umid_max,
-                    receptivo,
-                )
+                clima_rows_dict[clima_key] = {
+                    "id_municipio": geocode,
+                    "data_inicio_semana": data_ini,
+                    "semana_ano": se_val,
+                    "temp_min": temp_min,
+                    "temp_med": temp_med,
+                    "temp_max": temp_max,
+                    "umid_min": umid_min,
+                    "umid_med": umid_med,
+                    "umid_max": umid_max,
+                    "receptivo_ambiental": receptivo,
+                }
 
             alerta_rows.append(
-                (
-                    geocode,
-                    doenca,
-                    data_ini,
-                    se_val,
-                    nivel_alerta,
-                    rt,
-                    p_rt1,
-                    inc100k,
-                    transmissao,
-                    notif_accum,
-                )
+                {
+                    "id_municipio": geocode,
+                    "doenca": doenca,
+                    "data_inicio_semana": data_ini,
+                    "semana_ano": se_val,
+                    "nivel_alerta": nivel_alerta,
+                    "rt": rt,
+                    "p_rt1": p_rt1,
+                    "incidencia_100k": inc100k,
+                    "transmissao_sustentada": transmissao,
+                    "notif_acumuladas_ano": notif_accum,
+                }
             )
 
         except Exception:
             erros_ignorados += 1
             continue
 
-    with conn:
+    with eng.begin() as conn:
         # 1. Município
         conn.execute(
-            """
-            INSERT INTO tb_municipio (id_municipio, nome_municipio, uf, populacao)
-            VALUES (?, ?, ?, ?)
-            ON CONFLICT(id_municipio) DO UPDATE SET
-                nome_municipio = excluded.nome_municipio,
-                populacao = excluded.populacao;
-            """,
-            (geocode, nome_mun, "SP", populacao),
+            text(
+                """
+                INSERT INTO oltp.tb_municipio (id_municipio, nome_municipio, uf, populacao)
+                VALUES (:id_municipio, :nome_municipio, :uf, :populacao)
+                ON CONFLICT (id_municipio) DO UPDATE SET
+                    nome_municipio = EXCLUDED.nome_municipio,
+                    populacao = EXCLUDED.populacao;
+                """
+            ),
+            {"id_municipio": geocode, "nome_municipio": nome_mun, "uf": "SP", "populacao": populacao},
         )
 
         # 2. Unidades Notificadoras (se não existirem)
-        cur = conn.execute(
-            "SELECT COUNT(*) FROM tb_unidade_notificadora WHERE id_municipio = ?",
-            (geocode,),
+        res = conn.execute(
+            text("SELECT COUNT(*) FROM oltp.tb_unidade_notificadora WHERE id_municipio = :id_mun"),
+            {"id_mun": geocode},
         )
-        if cur.fetchone()[0] == 0:
+        if res.scalar() == 0:
             unidades_iniciais = [
-                (geocode, "Vigilância Epidemiológica Central", "Vigilância", "Centro"),
-                (geocode, "Hospital São Vicente de Paulo", "Hospital", "Centro"),
-                (geocode, "UPA Novo Horizonte", "Pronto Atendimento", "Novo Horizonte"),
-                (geocode, "UBS Vila Hortolândia", "Unidade Básica", "Vila Hortolândia"),
+                {"id_municipio": geocode, "nome_unidade": "Vigilância Epidemiológica Central", "tipo_unidade": "Vigilância", "bairro": "Centro"},
+                {"id_municipio": geocode, "nome_unidade": "Hospital São Vicente de Paulo", "tipo_unidade": "Hospital", "bairro": "Centro"},
+                {"id_municipio": geocode, "nome_unidade": "UPA Novo Horizonte", "tipo_unidade": "Pronto Atendimento", "bairro": "Novo Horizonte"},
+                {"id_municipio": geocode, "nome_unidade": "UBS Vila Hortolândia", "tipo_unidade": "Unidade Básica", "bairro": "Vila Hortolândia"},
             ]
-            conn.executemany(
-                """
-                INSERT INTO tb_unidade_notificadora (id_municipio, nome_unidade, tipo_unidade, bairro)
-                VALUES (?, ?, ?, ?);
-                """,
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO oltp.tb_unidade_notificadora (id_municipio, nome_unidade, tipo_unidade, bairro)
+                    VALUES (:id_municipio, :nome_unidade, :tipo_unidade, :bairro);
+                    """
+                ),
                 unidades_iniciais,
             )
 
-        # 3. Inserções transacionais idempotentes com ON CONFLICT
-        conn.executemany(
-            """
-            INSERT INTO tb_notificacao_dengue (
-                id_municipio, doenca, data_inicio_semana, semana_ano, semana_epidem, ano_epidem,
-                casos_notificados, casos_estimados, casos_confirmados, casos_provaveis
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id_municipio, semana_ano, doenca) DO UPDATE SET
-                casos_notificados = excluded.casos_notificados,
-                casos_estimados = excluded.casos_estimados,
-                casos_confirmados = excluded.casos_confirmados,
-                casos_provaveis = excluded.casos_provaveis;
-            """,
-            notificacoes_rows,
-        )
+        # 3. Notificações
+        if notificacoes_rows:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO oltp.tb_notificacao_dengue (
+                        id_municipio, doenca, data_inicio_semana, semana_ano, semana_epidem, ano_epidem,
+                        casos_notificados, casos_estimados, casos_confirmados, casos_provaveis
+                    ) VALUES (
+                        :id_municipio, :doenca, :data_inicio_semana, :semana_ano, :semana_epidem, :ano_epidem,
+                        :casos_notificados, :casos_estimados, :casos_confirmados, :casos_provaveis
+                    ) ON CONFLICT (id_municipio, semana_ano, doenca) DO UPDATE SET
+                        casos_notificados = EXCLUDED.casos_notificados,
+                        casos_estimados = EXCLUDED.casos_estimados,
+                        casos_confirmados = EXCLUDED.casos_confirmados,
+                        casos_provaveis = EXCLUDED.casos_provaveis;
+                    """
+                ),
+                notificacoes_rows,
+            )
 
-        conn.executemany(
-            """
-            INSERT INTO tb_monitoramento_climatico (
-                id_municipio, data_inicio_semana, semana_ano,
-                temp_min, temp_med, temp_max, umid_min, umid_med, umid_max, receptivo_ambiental
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id_municipio, semana_ano) DO UPDATE SET
-                temp_min = excluded.temp_min,
-                temp_med = excluded.temp_med,
-                temp_max = excluded.temp_max,
-                umid_min = excluded.umid_min,
-                umid_med = excluded.umid_med,
-                umid_max = excluded.umid_max,
-                receptivo_ambiental = excluded.receptivo_ambiental;
-            """,
-            list(clima_rows_dict.values()),
-        )
+        # 4. Monitoramento Climático
+        if clima_rows_dict:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO oltp.tb_monitoramento_climatico (
+                        id_municipio, data_inicio_semana, semana_ano,
+                        temp_min, temp_med, temp_max, umid_min, umid_med, umid_max, receptivo_ambiental
+                    ) VALUES (
+                        :id_municipio, :data_inicio_semana, :semana_ano,
+                        :temp_min, :temp_med, :temp_max, :umid_min, :umid_med, :umid_max, :receptivo_ambiental
+                    ) ON CONFLICT (id_municipio, semana_ano) DO UPDATE SET
+                        temp_min = EXCLUDED.temp_min,
+                        temp_med = EXCLUDED.temp_med,
+                        temp_max = EXCLUDED.temp_max,
+                        umid_min = EXCLUDED.umid_min,
+                        umid_med = EXCLUDED.umid_med,
+                        umid_max = EXCLUDED.umid_max,
+                        receptivo_ambiental = EXCLUDED.receptivo_ambiental;
+                    """
+                ),
+                list(clima_rows_dict.values()),
+            )
 
-        conn.executemany(
-            """
-            INSERT INTO tb_alerta_epidemiologico (
-                id_municipio, doenca, data_inicio_semana, semana_ano,
-                nivel_alerta, rt, p_rt1, incidencia_100k, transmissao_sustentada, notif_acumuladas_ano
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(id_municipio, semana_ano, doenca) DO UPDATE SET
-                nivel_alerta = excluded.nivel_alerta,
-                rt = excluded.rt,
-                p_rt1 = excluded.p_rt1,
-                incidencia_100k = excluded.incidencia_100k,
-                transmissao_sustentada = excluded.transmissao_sustentada,
-                notif_acumuladas_ano = excluded.notif_acumuladas_ano;
-            """,
-            alerta_rows,
-        )
-
-    conn.close()
+        # 5. Alerta Epidemiológico
+        if alerta_rows:
+            conn.execute(
+                text(
+                    """
+                    INSERT INTO oltp.tb_alerta_epidemiologico (
+                        id_municipio, doenca, data_inicio_semana, semana_ano,
+                        nivel_alerta, rt, p_rt1, incidencia_100k, transmissao_sustentada, notif_acumuladas_ano
+                    ) VALUES (
+                        :id_municipio, :doenca, :data_inicio_semana, :semana_ano,
+                        :nivel_alerta, :rt, :p_rt1, :incidencia_100k, :transmissao_sustentada, :notif_acumuladas_ano
+                    ) ON CONFLICT (id_municipio, semana_ano, doenca) DO UPDATE SET
+                        nivel_alerta = EXCLUDED.nivel_alerta,
+                        rt = EXCLUDED.rt,
+                        p_rt1 = EXCLUDED.p_rt1,
+                        incidencia_100k = EXCLUDED.incidencia_100k,
+                        transmissao_sustentada = EXCLUDED.transmissao_sustentada,
+                        notif_acumuladas_ano = EXCLUDED.notif_acumuladas_ano;
+                    """
+                ),
+                alerta_rows,
+            )
 
     return {
         "municipios_inseridos": 1,

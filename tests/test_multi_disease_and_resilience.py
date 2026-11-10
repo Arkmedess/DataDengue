@@ -1,11 +1,41 @@
-import sqlite3
 import pandas as pd
 import pytest
+from sqlalchemy import text
 
-from src.database import init_dw_db, init_oltp_db
+from src.database import get_engine, init_dw_db, init_oltp_db
 from src.etl_pipeline import run_etl
 from src.models import RequisitionBody
 from src.oltp_loader import load_oltp_from_raw_df
+
+
+@pytest.fixture(autouse=True)
+def clean_database():
+    engine = get_engine()
+    init_oltp_db(engine)
+    init_dw_db(engine)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                TRUNCATE TABLE 
+                    dw.fato_casos_dengue, 
+                    dw.dim_tempo, 
+                    dw.dim_municipio, 
+                    dw.dim_alerta, 
+                    dw.dim_clima, 
+                    dw.dim_doenca 
+                CASCADE;
+                TRUNCATE TABLE 
+                    oltp.tb_notificacao_dengue, 
+                    oltp.tb_monitoramento_climatico, 
+                    oltp.tb_alerta_epidemiologico, 
+                    oltp.tb_unidade_notificadora, 
+                    oltp.tb_municipio 
+                CASCADE;
+                """
+            )
+        )
+    yield
 
 
 def test_requisition_body_auto_corrects_inverted_years():
@@ -16,13 +46,9 @@ def test_requisition_body_auto_corrects_inverted_years():
 
 
 def test_multi_disease_oltp_and_etl_preserves_both(tmp_path):
-    oltp_file = tmp_path / "oltp_multi.db"
-    dw_file = tmp_path / "dw_multi.db"
+    engine = get_engine()
     csv_dir = tmp_path / "dw_csv"
     csv_dir.mkdir()
-
-    init_oltp_db(oltp_file)
-    init_dw_db(dw_file)
 
     # Cria dados simulados com Dengue e Chikungunya na mesma semana
     sample_data = pd.DataFrame(
@@ -82,45 +108,42 @@ def test_multi_disease_oltp_and_etl_preserves_both(tmp_path):
         ]
     )
 
-    stats = load_oltp_from_raw_df(sample_data, oltp_file, geocode=3525904)
+    stats = load_oltp_from_raw_df(sample_data, engine, geocode=3525904)
     assert stats["notificacoes_inseridas"] == 2
     assert stats["erros_ignorados"] == 0
 
-    conn = sqlite3.connect(oltp_file)
-    cur = conn.cursor()
-    cur.execute("SELECT doenca, casos_notificados FROM tb_notificacao_dengue ORDER BY doenca")
-    results = cur.fetchall()
-    assert len(results) == 2
-    assert results[0] == ("chikungunya", 8)
-    assert results[1] == ("dengue", 80)
-    conn.close()
+    with engine.connect() as conn:
+        res = conn.execute(text("SELECT doenca, casos_notificados FROM oltp.tb_notificacao_dengue ORDER BY doenca"))
+        results = res.fetchall()
+        assert len(results) == 2
+        assert results[0] == ("chikungunya", 8)
+        assert results[1] == ("dengue", 80)
 
     # Roda ETL
-    etl_res = run_etl(oltp_file, dw_file, export_csv_dir=csv_dir)
+    etl_res = run_etl(engine, export_csv_dir=csv_dir)
     assert etl_res["fatos_carregados"] == 2
     assert etl_res["dimensoes_carregadas"]["dim_doenca"] == 3
 
-    conn_dw = sqlite3.connect(dw_file)
-    cur_dw = conn_dw.cursor()
-    cur_dw.execute(
-        """
-        SELECT d.nome_doenca, f.casos_notificados
-        FROM fato_casos_dengue f
-        JOIN dim_doenca d ON f.sk_doenca = d.sk_doenca
-        ORDER BY d.nome_doenca
-        """
-    )
-    dw_rows = cur_dw.fetchall()
-    assert dw_rows[0] == ("Chikungunya", 8)
-    assert dw_rows[1] == ("Dengue", 80)
-    conn_dw.close()
+    with engine.connect() as conn:
+        res_dw = conn.execute(
+            text(
+                """
+                SELECT d.nome_doenca, f.casos_notificados
+                FROM dw.fato_casos_dengue f
+                JOIN dw.dim_doenca d ON f.sk_doenca = d.sk_doenca
+                ORDER BY d.nome_doenca
+                """
+            )
+        )
+        dw_rows = res_dw.fetchall()
+        assert dw_rows[0] == ("Chikungunya", 8)
+        assert dw_rows[1] == ("Dengue", 80)
 
     assert (csv_dir / "dim_doenca.csv").exists()
 
 
-def test_oltp_resilience_to_malformed_and_nan_rows(tmp_path):
-    oltp_file = tmp_path / "oltp_corrupted.db"
-    init_oltp_db(oltp_file)
+def test_oltp_resilience_to_malformed_and_nan_rows():
+    engine = get_engine()
 
     dirty_data = pd.DataFrame(
         [
@@ -146,15 +169,23 @@ def test_oltp_resilience_to_malformed_and_nan_rows(tmp_path):
         ]
     )
 
-    stats = load_oltp_from_raw_df(dirty_data, oltp_file, geocode=3525904)
+    stats = load_oltp_from_raw_df(dirty_data, engine, geocode=3525904)
     assert stats["notificacoes_inseridas"] == 1
     assert stats["erros_ignorados"] == 1
 
-    conn = sqlite3.connect(oltp_file)
-    cur = conn.cursor()
-    cur.execute("SELECT casos_notificados, casos_estimados, nivel_alerta FROM tb_notificacao_dengue n JOIN tb_alerta_epidemiologico a ON n.semana_ano = a.semana_ano")
-    row = cur.fetchone()
-    assert row[0] == 45
-    assert row[1] == 45.0  # NaN corrigido
-    assert row[2] == 1     # Nível ausente corrigido para 1 (Verde)
-    conn.close()
+    with engine.connect() as conn:
+        res = conn.execute(
+            text(
+                """
+                SELECT n.casos_notificados, n.casos_estimados, a.nivel_alerta 
+                FROM oltp.tb_notificacao_dengue n 
+                JOIN oltp.tb_alerta_epidemiologico a 
+                  ON n.semana_ano = a.semana_ano 
+                 AND n.doenca = a.doenca
+                """
+            )
+        )
+        row = res.fetchone()
+        assert row[0] == 45
+        assert float(row[1]) == 45.0  # NaN corrigido
+        assert row[2] == 1            # Nível ausente corrigido para 1 (Verde)

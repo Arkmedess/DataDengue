@@ -3,8 +3,9 @@ from pathlib import Path
 from typing import Any
 
 import pandas as pd
+from sqlalchemy import Engine, text
 
-from src.database import get_db_connection
+from src.database import get_engine
 
 DOENCAS_MAP = {
     "dengue": {
@@ -79,19 +80,18 @@ def _determinar_risco_climatico(temp: float | None, umid: float | None) -> tuple
 
 
 def run_etl(
-    oltp_db_path: Path | str,
-    dw_db_path: Path | str,
+    engine: Engine | None = None,
     export_csv_dir: Path | str | None = None,
 ) -> dict[str, Any]:
-    """Executa o pipeline ETL extraindo do OLTP e carregando no Star Schema."""
-    oltp_conn = get_db_connection(oltp_db_path)
+    """Executa o pipeline ETL extraindo do schema oltp e carregando no Star Schema (schema dw) no PostgreSQL."""
+    eng = engine or get_engine()
 
-    # 1. Extração das tabelas do OLTP
-    df_mun = pd.read_sql_query("SELECT * FROM tb_municipio", oltp_conn)
-    df_notif = pd.read_sql_query("SELECT * FROM tb_notificacao_dengue", oltp_conn)
-    df_clima = pd.read_sql_query("SELECT * FROM tb_monitoramento_climatico", oltp_conn)
-    df_alerta = pd.read_sql_query("SELECT * FROM tb_alerta_epidemiologico", oltp_conn)
-    oltp_conn.close()
+    # 1. Extração das tabelas do schema oltp
+    with eng.connect() as conn:
+        df_mun = pd.read_sql_query(text("SELECT * FROM oltp.tb_municipio"), conn)
+        df_notif = pd.read_sql_query(text("SELECT * FROM oltp.tb_notificacao_dengue"), conn)
+        df_clima = pd.read_sql_query(text("SELECT * FROM oltp.tb_monitoramento_climatico"), conn)
+        df_alerta = pd.read_sql_query(text("SELECT * FROM oltp.tb_alerta_epidemiologico"), conn)
 
     if df_notif.empty:
         return {"fatos_carregados": 0, "dimensoes_carregadas": {}}
@@ -102,8 +102,6 @@ def run_etl(
     ).merge(
         df_clima, on=["id_municipio", "semana_ano"], suffixes=("", "_clima")
     )
-
-    dw_conn = get_db_connection(dw_db_path)
 
     # 2. Dimensão Município
     dim_municipio_records = []
@@ -160,7 +158,7 @@ def run_etl(
         ]
     )
 
-    # 4. Dimensão Doença / Agravo
+    # 4. Dimensão Doença
     df_dim_doenca = pd.DataFrame(list(DOENCAS_MAP.values()))
 
     # 5. Dimensão Clima
@@ -239,7 +237,6 @@ def run_etl(
         sk_mun = int(row["id_municipio"])
         sk_al = int(row["nivel_alerta"]) if 1 <= int(row["nivel_alerta"]) <= 4 else 1
 
-        # Mapeia SK da doença
         doenca_str = str(row.get("doenca", "dengue")).strip().lower()
         sk_doenca = DOENCAS_MAP.get(doenca_str, {}).get("sk_doenca", 1)
 
@@ -278,25 +275,33 @@ def run_etl(
         )
 
     df_dim_tempo = pd.DataFrame(list(dim_tempo_dict.values()))
+    if not df_dim_tempo.empty:
+        df_dim_tempo["data_inicio_semana"] = pd.to_datetime(df_dim_tempo["data_inicio_semana"]).dt.date
     df_fato = pd.DataFrame(fato_records)
 
-    # 7. Gravação idempotente no banco analítico (DW)
-    with dw_conn:
-        dw_conn.execute("DELETE FROM fato_casos_dengue;")
-        dw_conn.execute("DELETE FROM dim_tempo;")
-        dw_conn.execute("DELETE FROM dim_municipio;")
-        dw_conn.execute("DELETE FROM dim_alerta;")
-        dw_conn.execute("DELETE FROM dim_clima;")
-        dw_conn.execute("DELETE FROM dim_doenca;")
+    # 7. Carga no schema dw do PostgreSQL
+    with eng.begin() as conn:
+        conn.execute(
+            text(
+                """
+                TRUNCATE TABLE 
+                    dw.fato_casos_dengue, 
+                    dw.dim_tempo, 
+                    dw.dim_municipio, 
+                    dw.dim_alerta, 
+                    dw.dim_clima, 
+                    dw.dim_doenca 
+                CASCADE;
+                """
+            )
+        )
 
-        df_dim_municipio.to_sql("dim_municipio", dw_conn, if_exists="append", index=False)
-        df_dim_alerta.to_sql("dim_alerta", dw_conn, if_exists="append", index=False)
-        df_dim_clima.to_sql("dim_clima", dw_conn, if_exists="append", index=False)
-        df_dim_doenca.to_sql("dim_doenca", dw_conn, if_exists="append", index=False)
-        df_dim_tempo.to_sql("dim_tempo", dw_conn, if_exists="append", index=False)
-        df_fato.to_sql("fato_casos_dengue", dw_conn, if_exists="append", index=False)
-
-    dw_conn.close()
+        df_dim_municipio.to_sql("dim_municipio", conn, schema="dw", if_exists="append", index=False)
+        df_dim_alerta.to_sql("dim_alerta", conn, schema="dw", if_exists="append", index=False)
+        df_dim_clima.to_sql("dim_clima", conn, schema="dw", if_exists="append", index=False)
+        df_dim_doenca.to_sql("dim_doenca", conn, schema="dw", if_exists="append", index=False)
+        df_dim_tempo.to_sql("dim_tempo", conn, schema="dw", if_exists="append", index=False)
+        df_fato.to_sql("fato_casos_dengue", conn, schema="dw", if_exists="append", index=False)
 
     # 8. Exportação dos CSVs dimensionais para o Power BI
     if export_csv_dir is not None:

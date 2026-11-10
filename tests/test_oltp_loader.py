@@ -1,9 +1,30 @@
-import sqlite3
 import pandas as pd
 import pytest
+from sqlalchemy import text
 
-from src.database import init_oltp_db
+from src.database import get_engine, init_oltp_db
 from src.oltp_loader import load_oltp_from_raw_df
+
+
+@pytest.fixture(autouse=True)
+def clean_oltp_schema():
+    engine = get_engine()
+    init_oltp_db(engine)
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                TRUNCATE TABLE 
+                    oltp.tb_notificacao_dengue, 
+                    oltp.tb_monitoramento_climatico, 
+                    oltp.tb_alerta_epidemiologico, 
+                    oltp.tb_unidade_notificadora, 
+                    oltp.tb_municipio 
+                CASCADE;
+                """
+            )
+        )
+    yield
 
 
 @pytest.fixture
@@ -67,44 +88,28 @@ def sample_raw_df():
     return pd.DataFrame(data)
 
 
-def test_oltp_loader_creates_tables_and_inserts_data(tmp_path, sample_raw_df):
-    db_file = tmp_path / "test_oltp.db"
-    init_oltp_db(db_file)
+def test_oltp_loader_creates_tables_and_inserts_data(sample_raw_df):
+    engine = get_engine()
 
-    stats = load_oltp_from_raw_df(sample_raw_df, db_file, geocode=3525904)
+    stats = load_oltp_from_raw_df(sample_raw_df, engine, geocode=3525904)
 
     assert stats["notificacoes_inseridas"] == 2
     assert stats["municipios_inseridos"] == 1
 
-    conn = sqlite3.connect(db_file)
-    cur = conn.cursor()
-
-    cur.execute("SELECT COUNT(*) FROM tb_municipio")
-    assert cur.fetchone()[0] == 1
-
-    cur.execute("SELECT COUNT(*) FROM tb_notificacao_dengue")
-    assert cur.fetchone()[0] == 2
-
-    cur.execute("SELECT COUNT(*) FROM tb_monitoramento_climatico")
-    assert cur.fetchone()[0] == 2
-
-    cur.execute("SELECT COUNT(*) FROM tb_alerta_epidemiologico")
-    assert cur.fetchone()[0] == 2
-
-    conn.close()
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT COUNT(*) FROM oltp.tb_municipio")).scalar() == 1
+        assert conn.execute(text("SELECT COUNT(*) FROM oltp.tb_notificacao_dengue")).scalar() == 2
+        assert conn.execute(text("SELECT COUNT(*) FROM oltp.tb_monitoramento_climatico")).scalar() == 2
+        assert conn.execute(text("SELECT COUNT(*) FROM oltp.tb_alerta_epidemiologico")).scalar() == 2
 
 
-def test_oltp_loader_is_idempotent(tmp_path, sample_raw_df):
-    db_file = tmp_path / "test_oltp_idempotent.db"
-    init_oltp_db(db_file)
+def test_oltp_loader_is_idempotent(sample_raw_df):
+    engine = get_engine()
 
     # Executa a primeira carga
-    load_oltp_from_raw_df(sample_raw_df, db_file, geocode=3525904)
+    load_oltp_from_raw_df(sample_raw_df, engine, geocode=3525904)
     # Executa a segunda carga com os mesmos dados (deve atualizar ou manter sem duplicar)
-    load_oltp_from_raw_df(sample_raw_df, db_file, geocode=3525904)
+    load_oltp_from_raw_df(sample_raw_df, engine, geocode=3525904)
 
-    conn = sqlite3.connect(db_file)
-    cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM tb_notificacao_dengue")
-    assert cur.fetchone()[0] == 2
-    conn.close()
+    with engine.connect() as conn:
+        assert conn.execute(text("SELECT COUNT(*) FROM oltp.tb_notificacao_dengue")).scalar() == 2

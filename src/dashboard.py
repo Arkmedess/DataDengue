@@ -13,17 +13,53 @@ st.set_page_config(
 # 2. Carregamento de Dados (Com cache para não travar o app)
 @st.cache_data
 def carregar_dados():
-    # Busca o arquivo limpo na pasta data
+    # 1. Tenta carregar diretamente do PostgreSQL através da View Dimensional
+    try:
+        from sqlalchemy import text
+        from src.database import get_engine
+        eng = get_engine()
+        with eng.connect() as conn:
+            query = text("""
+                SELECT 
+                    data_inicio_semana AS "data_ini_SE",
+                    semana_ano AS "SE",
+                    nome_doenca AS "doenca",
+                    casos_notificados AS "casos",
+                    casos_estimados AS "casos_est",
+                    notif_acumuladas_ano,
+                    temp_media_semana AS "tempmed",
+                    umid_media_semana AS "umidmed",
+                    nivel_alerta AS "nivel",
+                    status_alerta_nome,
+                    cor_indicativa,
+                    taxa_rt AS "Rt"
+                FROM dw.vw_star_schema_completo
+                ORDER BY data_inicio_semana ASC, nome_doenca ASC
+            """)
+            df_pg = pd.read_sql_query(query, conn)
+            if not df_pg.empty:
+                df_pg["data_ini_SE"] = pd.to_datetime(df_pg["data_ini_SE"])
+                map_warns = {
+                    1: "🟢 Verde",
+                    2: "🟡 Amarelo",
+                    3: "🟠 Laranja",
+                    4: "🔴 Vermelho",
+                }
+                df_pg["alerta_status"] = df_pg["nivel"].map(lambda n: map_warns.get(int(n), "⚪ Desconhecido"))
+                return df_pg
+    except Exception:
+        pass
+
+    # 2. Fallback para o arquivo CSV consolidado
     caminho_arquivo = (
         Path(__file__).resolve().parent.parent / "data" / "Dengue_Jundiai.csv"
     )
 
     if not caminho_arquivo.exists():
-        st.error("Arquivo de dados não encontrado! Rode o main.py primeiro.")
+        st.error("Dados não encontrados! Inicie o banco PostgreSQL e execute 'uv run python main.py'.")
         st.stop()
 
     df = pd.read_csv(caminho_arquivo)
-    # Garante que a data seja interpretada como tempo para os gráficos
     df["data_ini_SE"] = pd.to_datetime(df["data_ini_SE"])
     return df
 
@@ -234,28 +270,37 @@ with tab_grid_filtrado:
     st.caption(f"Exibindo {len(df_ordenado)} registros filtrados.")
 
 with tab_grid_dw:
-    import sqlite3
-    caminho_dw = Path(__file__).resolve().parent.parent / "data" / "dw_dengue.db"
-    if caminho_dw.exists():
-        conn = sqlite3.connect(caminho_dw)
+    try:
+        from sqlalchemy import text
+        from src.database import get_engine
+        eng = get_engine()
         tabelas_dw = [
-            "fato_casos_dengue",
-            "dim_tempo",
-            "dim_doenca",
-            "dim_municipio",
-            "dim_alerta",
-            "dim_clima",
+            "dw.vw_star_schema_completo",
+            "dw.vw_sazonalidade_mensal",
+            "dw.vw_correlacao_clima_casos",
+            "dw.vw_alertas_criticos",
+            "dw.fato_casos_dengue",
+            "dw.dim_tempo",
+            "dw.dim_doenca",
+            "dw.dim_municipio",
+            "dw.dim_alerta",
+            "dw.dim_clima",
+            "oltp.tb_notificacao_dengue",
+            "oltp.tb_monitoramento_climatico",
+            "oltp.tb_alerta_epidemiologico",
+            "oltp.tb_municipio",
+            "oltp.tb_unidade_notificadora",
         ]
         tabela_escolhida = st.selectbox(
-            "Selecione a tabela do Data Warehouse para inspecionar no DataGrid:",
+            "Selecione a tabela ou view do PostgreSQL para inspecionar no DataGrid:",
             tabelas_dw,
         )
-        df_dw_table = pd.read_sql_query(f"SELECT * FROM {tabela_escolhida}", conn)
-        conn.close()
+        with eng.connect() as conn:
+            df_dw_table = pd.read_sql_query(text(f"SELECT * FROM {tabela_escolhida} LIMIT 1000"), conn)
         st.dataframe(df_dw_table, use_container_width=True, hide_index=True)
-        st.caption(f"Tabela selecionada: **{tabela_escolhida}** | Total de registros: **{len(df_dw_table)}**")
-    else:
-        st.info("Banco analítico dw_dengue.db ainda não encontrado. Execute 'python main.py' para gerar o Data Warehouse.")
+        st.caption(f"PostgreSQL: **{tabela_escolhida}** | Exibindo até **{len(df_dw_table)}** linhas.")
+    except Exception as e:
+        st.info(f"PostgreSQL não conectado ou banco ainda não inicializado ({e}). Execute 'python main.py'.")
 
 
 st.subheader("Dicionario de Dados")
