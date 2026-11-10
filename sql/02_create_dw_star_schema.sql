@@ -1,10 +1,10 @@
 -- ============================================================================
 -- PROJETO INTEGRADOR FATEC - DESAFIO DE DADOS / BUSINESS INTELLIGENCE
--- MODELO DIMENSIONAL (STAR SCHEMA / OLAP) - DATA WAREHOUSE DENGUE
+-- MODELO DIMENSIONAL (STAR SCHEMA / OLAP) - DATA WAREHOUSE ARBOVIROSES
 -- ============================================================================
 -- Estrutura em esquema estrela contendo uma Tabela Fato central cercada por
 -- Dimensões ricas e desnormalizadas com Surrogate Keys (SK).
--- Otimizado para consultas analíticas no Power BI, DAX e Data Warehouses.
+-- Suporta monitoramento integrado de Dengue, Chikungunya e Zika.
 -- ============================================================================
 
 -- 1. DIMENSÃO TEMPO EPIDEMIOLÓGICO
@@ -52,13 +52,23 @@ CREATE TABLE IF NOT EXISTS dim_clima (
     risco_clima_proliferacao VARCHAR(50) NOT NULL -- Baixo, Moderado, Crítico
 );
 
--- 5. TABELA FATO: MONITORAMENTO E INCIDÊNCIA DE CASOS DE DENGUE
+-- 5. DIMENSÃO DOENÇA / AGRAVO
+CREATE TABLE IF NOT EXISTS dim_doenca (
+    sk_doenca INTEGER PRIMARY KEY,              -- 1: Dengue, 2: Chikungunya, 3: Zika
+    nome_doenca VARCHAR(50) NOT NULL,
+    codigo_cid10 VARCHAR(10) NOT NULL,
+    vetor_transmissor VARCHAR(80) NOT NULL,
+    descricao_clinica VARCHAR(200) NOT NULL
+);
+
+-- 6. TABELA FATO: MONITORAMENTO E INCIDÊNCIA DE ARBOVIROSES
 CREATE TABLE IF NOT EXISTS fato_casos_dengue (
     sk_fato INTEGER PRIMARY KEY AUTOINCREMENT,
     sk_tempo INTEGER NOT NULL,
     sk_municipio INTEGER NOT NULL,
     sk_alerta INTEGER NOT NULL,
     sk_clima INTEGER NOT NULL,
+    sk_doenca INTEGER NOT NULL DEFAULT 1,
 
     -- Métricas e Fatos Aditivos / Semi-aditivos
     casos_notificados INTEGER NOT NULL DEFAULT 0,
@@ -77,7 +87,8 @@ CREATE TABLE IF NOT EXISTS fato_casos_dengue (
     FOREIGN KEY (sk_municipio) REFERENCES dim_municipio(sk_municipio),
     FOREIGN KEY (sk_alerta) REFERENCES dim_alerta(sk_alerta),
     FOREIGN KEY (sk_clima) REFERENCES dim_clima(sk_clima),
-    CONSTRAINT uq_fato_registro UNIQUE (sk_tempo, sk_municipio)
+    FOREIGN KEY (sk_doenca) REFERENCES dim_doenca(sk_doenca),
+    CONSTRAINT uq_fato_registro UNIQUE (sk_tempo, sk_municipio, sk_doenca)
 );
 
 -- ============================================================================
@@ -87,3 +98,4 @@ CREATE INDEX IF NOT EXISTS idx_fato_sk_tempo ON fato_casos_dengue(sk_tempo);
 CREATE INDEX IF NOT EXISTS idx_fato_sk_municipio ON fato_casos_dengue(sk_municipio);
 CREATE INDEX IF NOT EXISTS idx_fato_sk_alerta ON fato_casos_dengue(sk_alerta);
 CREATE INDEX IF NOT EXISTS idx_fato_sk_clima ON fato_casos_dengue(sk_clima);
+CREATE INDEX IF NOT EXISTS idx_fato_sk_doenca ON fato_casos_dengue(sk_doenca);

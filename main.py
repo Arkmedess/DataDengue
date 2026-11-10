@@ -2,9 +2,9 @@ import argparse
 import subprocess
 import sys
 from pathlib import Path
-from typing import Literal
+from typing import Sequence
 
-from src.api_service import export_csv, get_csv, polish_data
+from src.api_service import export_csv, fetch_multiple_diseases, polish_data
 from src.cli import (
     clean_storage,
     interactive_tui,
@@ -13,7 +13,6 @@ from src.cli import (
 )
 from src.database import init_dw_db, init_oltp_db
 from src.etl_pipeline import run_etl
-from src.models import RequisitionBody
 from src.oltp_loader import load_oltp_from_raw_df
 
 PROJECT_ROOT = Path(__file__).resolve().parent
@@ -26,12 +25,12 @@ DW_CSV_DIR = DATA_DIR / "dw"
 def execute_pipeline(
     start_year: int = 2025,
     end_year: int = 2025,
-    disease: Literal["dengue", "chikungunya", "zika"] = "dengue",
+    diseases: Sequence[str] = ("dengue",),
     geocode: int = 3525904,
     start_streamlit: bool = False,
     only_streamlit: bool = False,
 ) -> None:
-    """Executa o pipeline completo ou inicia o Streamlit."""
+    """Executa o pipeline completo para uma ou mais doenças ou inicia o Streamlit."""
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     DW_CSV_DIR.mkdir(parents=True, exist_ok=True)
 
@@ -40,36 +39,55 @@ def execute_pipeline(
         subprocess.run([sys.executable, "-m", "streamlit", "run", "src/dashboard.py"])
         return
 
+    # Garante ordenação cronológica se o usuário inverter os anos
+    if start_year > end_year:
+        print(f"[AVISO] Anos invertidos ({start_year} > {end_year}). Ajustando automaticamente...")
+        start_year, end_year = end_year, start_year
+
+    # Validação e higienização da lista de doenças
+    valid_diseases = {"dengue", "chikungunya", "zika"}
+    sanitized_diseases = [d.strip().lower() for d in diseases if d.strip().lower() in valid_diseases]
+    if not sanitized_diseases:
+        sanitized_diseases = ["dengue"]
+
     print("=" * 70)
     print("PROJETO INTEGRADOR FATEC - DATA-TO-INSIGHT JOURNEY (DATADENGUE)")
     print("=" * 70)
 
     # 1. Coleta na API InfoDengue
-    csv_api = RequisitionBody(
-        geocode=geocode,
-        disease=disease,
-        ey_start=start_year,
-        ey_end=end_year,
-    )
     print(
         f"1. Coletando dados da API InfoDengue...\n"
-        f"   • Município (Geocode): {csv_api.geocode}\n"
-        f"   • Arbovirose:          {csv_api.disease}\n"
-        f"   • Período:             {csv_api.ey_start} a {csv_api.ey_end} (SE {csv_api.ew_start}-{csv_api.ew_end})"
+        f"   • Município (Geocode): {geocode}\n"
+        f"   • Arboviroses:         {', '.join(sanitized_diseases)}\n"
+        f"   • Período:             {start_year} a {end_year}"
     )
-    df_raw = get_csv(csv_api)
-    print(f"   -> {len(df_raw)} registros epidemiológicos brutos obtidos.")
 
-    # 2. Compatibilidade legada (CSV consolidado)
+    df_raw = fetch_multiple_diseases(
+        diseases=sanitized_diseases,
+        geocode=geocode,
+        start_year=start_year,
+        end_year=end_year,
+    )
+
+    if df_raw.empty:
+        print("\n[AVISO]: Nenhum dado retornado para os parâmetros informados. Verifique se a cidade possui notificações no período.")
+        return
+
+    print(f"   -> Total de {len(df_raw)} registros epidemiológicos brutos obtidos.")
+
+    # 2. Compatibilidade legada
     df_polish = polish_data(df_raw)
-    export_csv(df_polish, file_name="Dengue_Jundiai.csv")
+    if not df_polish.empty:
+        export_csv(df_polish, file_name="Dengue_Jundiai.csv")
 
     # 3. Inicialização e Carga no Banco Transacional (OLTP)
     print("\n2. Inicializando Banco de Dados Transacional (OLTP)...")
     init_oltp_db(OLTP_DB)
-    oltp_stats = load_oltp_from_raw_df(df_raw, OLTP_DB, geocode=csv_api.geocode)
+    oltp_stats = load_oltp_from_raw_df(df_raw, OLTP_DB, geocode=geocode)
     print(f"   -> Banco OLTP populado em: {OLTP_DB.name}")
-    print(f"   -> {oltp_stats['notificacoes_inseridas']} semanas transacionais registradas em 3FN.")
+    print(f"   -> {oltp_stats['notificacoes_inseridas']} notificações registradas em 3FN.")
+    if oltp_stats.get("erros_ignorados", 0) > 0:
+        print(f"   -> {oltp_stats['erros_ignorados']} registros corrompidos/inválidos prevenidos e ignorados.")
 
     # 4. Pipeline de ETL Dimensional (Star Schema)
     print("\n3. Executando Pipeline de ETL Dimensional (Star Schema)...")
@@ -125,7 +143,18 @@ def main() -> None:
         "--disease",
         choices=["dengue", "chikungunya", "zika"],
         default="dengue",
-        help="Arbovirose a consultar (dengue, chikungunya ou zika)",
+        help="Arbovirose única (dengue, chikungunya ou zika)",
+    )
+    parser.add_argument(
+        "--diseases",
+        nargs="+",
+        choices=["dengue", "chikungunya", "zika"],
+        help="Permite selecionar duas ou as três doenças (ex: --diseases dengue chikungunya)",
+    )
+    parser.add_argument(
+        "--all-diseases",
+        action="store_true",
+        help="Coleta e carrega as 3 arboviroses (dengue, chikungunya e zika) simultaneamente",
     )
     parser.add_argument(
         "--geocode",
@@ -136,11 +165,8 @@ def main() -> None:
 
     # Subcomandos de utilidades
     subparsers = parser.add_subparsers(dest="command", help="Comandos utilitários")
-
-    # Subcomando: status
     subparsers.add_parser("status", help="Exibe status dos bancos OLTP, DW e CSVs")
 
-    # Subcomando: summary
     summary_parser = subparsers.add_parser(
         "summary", help="Exibe resumo epidemiológico por ano ou semanas"
     )
@@ -148,13 +174,12 @@ def main() -> None:
         "--year", type=int, help="Filtrar por um ano específico"
     )
     summary_parser.add_argument(
-        "--limit", type=int, default=15, help="Limite de registros a exibir"
+        "--limit", type=int, default=20, help="Limite de registros a exibir"
     )
     summary_parser.add_argument(
         "--json", action="store_true", help="Exporta o resumo no formato JSON"
     )
 
-    # Subcomando: clean
     clean_parser = subparsers.add_parser(
         "clean", help="Limpa o Data Warehouse ou todo o armazenamento"
     )
@@ -170,7 +195,6 @@ def main() -> None:
         help="Confirma a limpeza sem pedir confirmação interativa",
     )
 
-    # Subcomando: tui
     subparsers.add_parser("tui", help="Abre o menu interativo (TUI)")
 
     args = parser.parse_args()
@@ -192,11 +216,18 @@ def main() -> None:
         rem = clean_storage(DATA_DIR, clean_oltp=args.all)
         print(f"Limpeza concluída! Removidos: {', '.join(rem) or 'nenhum arquivo'}")
     else:
-        # Execução padrão do pipeline
+        # Define quais doenças consultar
+        if args.all_diseases:
+            selected_diseases = ["dengue", "chikungunya", "zika"]
+        elif args.diseases:
+            selected_diseases = args.diseases
+        else:
+            selected_diseases = [args.disease]
+
         execute_pipeline(
             start_year=args.start_year,
             end_year=args.end_year,
-            disease=args.disease,
+            diseases=selected_diseases,
             geocode=args.geocode,
             start_streamlit=args.ui,
         )

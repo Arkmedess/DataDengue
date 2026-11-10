@@ -6,6 +6,30 @@ import pandas as pd
 
 from src.database import get_db_connection
 
+DOENCAS_MAP = {
+    "dengue": {
+        "sk_doenca": 1,
+        "nome_doenca": "Dengue",
+        "codigo_cid10": "A90",
+        "vetor_transmissor": "Aedes aegypti",
+        "descricao_clinica": "Febre alta, dores musculares intensas, cefaleia retro-orbital e risco de extravasamento plasmático.",
+    },
+    "chikungunya": {
+        "sk_doenca": 2,
+        "nome_doenca": "Chikungunya",
+        "codigo_cid10": "A92.0",
+        "vetor_transmissor": "Aedes aegypti / Aedes albopictus",
+        "descricao_clinica": "Febre de início súbito acompanhada de poliartralgia debilitante que pode cronificar por meses.",
+    },
+    "zika": {
+        "sk_doenca": 3,
+        "nome_doenca": "Zika",
+        "codigo_cid10": "A92.8",
+        "vetor_transmissor": "Aedes aegypti",
+        "descricao_clinica": "Exantema maculopapular pruriginoso, febre baixa, hiperemia conjuntival e risco de microcefalia congênita.",
+    },
+}
+
 
 def _determinar_estacao(mes: int) -> str:
     if mes in (12, 1, 2):
@@ -46,7 +70,6 @@ def _determinar_risco_climatico(temp: float | None, umid: float | None) -> tuple
     if temp is None or umid is None:
         return "Desfavorável", "Baixo"
 
-    # Aedes aegypti prolifera com temperatura entre 22°C e 30°C e umidade acima de 60%
     if temp >= 22.0 and umid >= 60.0:
         return "Surto Sustentado", "Crítico"
     elif temp >= 20.0 and umid >= 50.0:
@@ -73,16 +96,16 @@ def run_etl(
     if df_notif.empty:
         return {"fatos_carregados": 0, "dimensoes_carregadas": {}}
 
-    # Mescla os dados do OLTP pela chave natural (id_municipio, semana_ano)
+    # Mescla tabelas por chave natural
     df_base = df_notif.merge(
-        df_clima, on=["id_municipio", "semana_ano"], suffixes=("", "_clima")
+        df_alerta, on=["id_municipio", "semana_ano", "doenca"], suffixes=("", "_alerta")
     ).merge(
-        df_alerta, on=["id_municipio", "semana_ano"], suffixes=("", "_alerta")
+        df_clima, on=["id_municipio", "semana_ano"], suffixes=("", "_clima")
     )
 
     dw_conn = get_db_connection(dw_db_path)
 
-    # 2. Carga da Dimensão Município
+    # 2. Dimensão Município
     dim_municipio_records = []
     for _, row in df_mun.iterrows():
         pop = int(row["populacao"])
@@ -99,7 +122,7 @@ def run_etl(
         )
     df_dim_municipio = pd.DataFrame(dim_municipio_records)
 
-    # 3. Carga da Dimensão Nível de Alerta (Padrão Infodengue)
+    # 3. Dimensão Nível de Alerta
     df_dim_alerta = pd.DataFrame(
         [
             {
@@ -137,8 +160,10 @@ def run_etl(
         ]
     )
 
-    # 4. Carga da Dimensão Clima
-    # Mapeamos combinações únicas de faixas observadas
+    # 4. Dimensão Doença / Agravo
+    df_dim_doenca = pd.DataFrame(list(DOENCAS_MAP.values()))
+
+    # 5. Dimensão Clima
     clima_combos = {}
     clima_records = []
     sk_clima_counter = 1
@@ -166,7 +191,7 @@ def run_etl(
 
     df_dim_clima = pd.DataFrame(clima_records)
 
-    # 5. Carga da Dimensão Tempo e Tabela Fato
+    # 6. Dimensão Tempo e Tabela Fato
     dim_tempo_dict = {}
     fato_records = []
 
@@ -211,9 +236,12 @@ def run_etl(
                 "estacao_ano": _determinar_estacao(dt.month),
             }
 
-        # Identifica chaves estrangeiras
         sk_mun = int(row["id_municipio"])
         sk_al = int(row["nivel_alerta"]) if 1 <= int(row["nivel_alerta"]) <= 4 else 1
+
+        # Mapeia SK da doença
+        doenca_str = str(row.get("doenca", "dengue")).strip().lower()
+        sk_doenca = DOENCAS_MAP.get(doenca_str, {}).get("sk_doenca", 1)
 
         temp = row["temp_med"]
         umid = row["umid_med"]
@@ -232,6 +260,7 @@ def run_etl(
                 "sk_municipio": sk_mun,
                 "sk_alerta": sk_al,
                 "sk_clima": sk_cl,
+                "sk_doenca": sk_doenca,
                 "casos_notificados": casos_notif,
                 "casos_estimados": casos_est,
                 "diferenca_nowcasting": diff_nowcast,
@@ -251,23 +280,25 @@ def run_etl(
     df_dim_tempo = pd.DataFrame(list(dim_tempo_dict.values()))
     df_fato = pd.DataFrame(fato_records)
 
-    # 6. Gravação idempotente no banco analítico (DW)
+    # 7. Gravação idempotente no banco analítico (DW)
     with dw_conn:
         dw_conn.execute("DELETE FROM fato_casos_dengue;")
         dw_conn.execute("DELETE FROM dim_tempo;")
         dw_conn.execute("DELETE FROM dim_municipio;")
         dw_conn.execute("DELETE FROM dim_alerta;")
         dw_conn.execute("DELETE FROM dim_clima;")
+        dw_conn.execute("DELETE FROM dim_doenca;")
 
         df_dim_municipio.to_sql("dim_municipio", dw_conn, if_exists="append", index=False)
         df_dim_alerta.to_sql("dim_alerta", dw_conn, if_exists="append", index=False)
         df_dim_clima.to_sql("dim_clima", dw_conn, if_exists="append", index=False)
+        df_dim_doenca.to_sql("dim_doenca", dw_conn, if_exists="append", index=False)
         df_dim_tempo.to_sql("dim_tempo", dw_conn, if_exists="append", index=False)
         df_fato.to_sql("fato_casos_dengue", dw_conn, if_exists="append", index=False)
 
     dw_conn.close()
 
-    # 7. Exportação de CSVs prontos para o Power BI
+    # 8. Exportação dos CSVs dimensionais para o Power BI
     if export_csv_dir is not None:
         p_dir = Path(export_csv_dir)
         p_dir.mkdir(parents=True, exist_ok=True)
@@ -276,6 +307,7 @@ def run_etl(
         df_dim_municipio.to_csv(p_dir / "dim_municipio.csv", index=False, encoding="utf-8-sig")
         df_dim_alerta.to_csv(p_dir / "dim_alerta.csv", index=False, encoding="utf-8-sig")
         df_dim_clima.to_csv(p_dir / "dim_clima.csv", index=False, encoding="utf-8-sig")
+        df_dim_doenca.to_csv(p_dir / "dim_doenca.csv", index=False, encoding="utf-8-sig")
         df_fato.to_csv(p_dir / "fato_casos_dengue.csv", index=False, encoding="utf-8-sig")
 
     return {
@@ -284,6 +316,7 @@ def run_etl(
             "dim_municipio": len(df_dim_municipio),
             "dim_alerta": len(df_dim_alerta),
             "dim_clima": len(df_dim_clima),
+            "dim_doenca": len(df_dim_doenca),
             "dim_tempo": len(df_dim_tempo),
         },
     }

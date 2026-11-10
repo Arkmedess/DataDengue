@@ -60,6 +60,7 @@ def get_system_status(data_dir: Path) -> dict[str, Any]:
         "total_registros_dw": 0,
         "periodo_min": None,
         "periodo_max": None,
+        "doencas_carregadas": [],
         "tamanho_oltp_kb": 0.0,
         "tamanho_dw_kb": 0.0,
         "csvs_gerados": [],
@@ -72,6 +73,8 @@ def get_system_status(data_dir: Path) -> dict[str, Any]:
             cur = conn.cursor()
             cur.execute("SELECT COUNT(*) FROM tb_notificacao_dengue")
             status["total_registros_oltp"] = cur.fetchone()[0]
+            cur.execute("SELECT DISTINCT doenca FROM tb_notificacao_dengue")
+            status["doencas_carregadas"] = [r[0] for r in cur.fetchall()]
             conn.close()
         except Exception:
             pass
@@ -117,9 +120,10 @@ def print_status(data_dir: Path) -> None:
 
     # OLTP
     if st["oltp_existe"]:
+        doencas_str = ", ".join(st["doencas_carregadas"]) if st["doencas_carregadas"] else "dengue"
         print(
             f"• Banco Transacional (OLTP): {_colorize('ONLINE', green)} "
-            f"({st['total_registros_oltp']} semanas | {st['tamanho_oltp_kb']} KB)"
+            f"({st['total_registros_oltp']} semanas | {st['tamanho_oltp_kb']} KB | Doenças: {doencas_str})"
         )
     else:
         print(f"• Banco Transacional (OLTP): {_colorize('NÃO INICIALIZADO', yellow)}")
@@ -146,9 +150,9 @@ def print_status(data_dir: Path) -> None:
 
 
 def print_summary(
-    data_dir: Path, as_json: bool = False, year: int | None = None, limit: int = 15
+    data_dir: Path, as_json: bool = False, year: int | None = None, limit: int = 20
 ) -> None:
-    """Exibe um resumo epidemiológico consolidado por ano ou últimas semanas."""
+    """Exibe um resumo epidemiológico consolidado por ano, doença ou últimas semanas."""
     dw_file = data_dir / "dw_dengue.db"
     if not dw_file.exists():
         print("Data Warehouse não encontrado. Execute o pipeline primeiro: python main.py", file=sys.stderr)
@@ -158,10 +162,11 @@ def print_summary(
     conn.row_factory = sqlite3.Row
 
     if year is not None:
-        # Detalhe por semana para o ano solicitado
+        # Detalhe por semana e doença
         query = """
             SELECT 
                 t.semana_ano,
+                d.nome_doenca AS doenca,
                 t.data_inicio_semana,
                 t.nome_mes,
                 f.casos_notificados,
@@ -172,16 +177,18 @@ def print_summary(
             FROM fato_casos_dengue f
             JOIN dim_tempo t ON f.sk_tempo = t.sk_tempo
             JOIN dim_alerta a ON f.sk_alerta = a.sk_alerta
+            JOIN dim_doenca d ON f.sk_doenca = d.sk_doenca
             WHERE t.ano = ?
-            ORDER BY t.sk_tempo DESC
+            ORDER BY t.sk_tempo DESC, d.sk_doenca ASC
             LIMIT ?
         """
         rows = conn.execute(query, (year, limit)).fetchall()
     else:
-        # Resumo agregado por ano
+        # Resumo agregado por ano e doença
         query = """
             SELECT 
                 t.ano,
+                d.nome_doenca AS doenca,
                 COUNT(f.sk_fato) AS semanas,
                 SUM(f.casos_notificados) AS total_casos,
                 ROUND(SUM(f.casos_estimados), 0) AS total_estimado,
@@ -190,8 +197,9 @@ def print_summary(
                 ROUND(AVG(f.temp_media_semana), 1) AS temp_med
             FROM fato_casos_dengue f
             JOIN dim_tempo t ON f.sk_tempo = t.sk_tempo
-            GROUP BY t.ano
-            ORDER BY t.ano DESC
+            JOIN dim_doenca d ON f.sk_doenca = d.sk_doenca
+            GROUP BY t.ano, d.sk_doenca, d.nome_doenca
+            ORDER BY t.ano DESC, d.sk_doenca ASC
             LIMIT ?
         """
         rows = conn.execute(query, (limit,)).fetchall()
@@ -208,7 +216,6 @@ def print_summary(
         print("Nenhum registro encontrado para o filtro selecionado.")
         return
 
-    # Renderização em tabela ASCII limpa
     headers = list(dict_rows[0].keys())
     col_widths = {h: max(len(h), max(len(str(r[h])) for r in dict_rows)) for h in headers}
 
@@ -233,18 +240,19 @@ def interactive_tui(data_dir: Path, execute_callback) -> None:
         print("\n" + _colorize("===============================================", cyan))
         print(_colorize("        DATADENGUE - PAINEL DE CONTROLE (CLI/TUI)     ", cyan))
         print(_colorize("===============================================", cyan))
-        print(" [1] Executar Carga / Pipeline Completo")
-        print(" [2] Carga com Período Personalizado (Anos / Doença)")
-        print(" [3] Exibir Status dos Bancos (OLTP & DW)")
-        print(" [4] Ver Resumo Epidemiológico Consolidado")
-        print(" [5] Abrir Dashboard Streamlit no Navegador")
-        print(" [6] Limpar Data Warehouse (Resetar Tabelas DW)")
-        print(" [7] Limpar Tudo (DW + Banco Transacional OLTP)")
+        print(" [1] Executar Carga Padrão (Dengue)")
+        print(" [2] Carga com Período & Doenças Selecionadas")
+        print(" [3] Carga Completa de Todas as Doenças (Dengue + Chikungunya + Zika)")
+        print(" [4] Exibir Status dos Bancos (OLTP & DW)")
+        print(" [5] Ver Resumo Epidemiológico Consolidado")
+        print(" [6] Abrir Dashboard Streamlit no Navegador")
+        print(" [7] Limpar Data Warehouse (Resetar Tabelas DW)")
+        print(" [8] Limpar Tudo (DW + Banco Transacional OLTP)")
         print(" [0] Sair")
         print(_colorize("-----------------------------------------------", cyan))
 
         try:
-            choice = input("Selecione uma opção [0-7]: ").strip()
+            choice = input("Selecione uma opção [0-8]: ").strip()
         except (KeyboardInterrupt, EOFError):
             print("\nEncerrando...")
             break
@@ -253,40 +261,68 @@ def interactive_tui(data_dir: Path, execute_callback) -> None:
             print("Até logo!")
             break
         elif choice == "1":
-            print("\n" + _colorize("Executando pipeline padrão...", green))
-            execute_callback()
+            print("\n" + _colorize("Executando pipeline padrão para Dengue...", green))
+            execute_callback(diseases=["dengue"])
         elif choice == "2":
             print("\n" + _colorize("Configuração de Carga Personalizada:", yellow))
             try:
                 ano_ini = input("Ano inicial [padrão: 2024]: ").strip() or "2024"
                 ano_fim = input("Ano final   [padrão: 2025]: ").strip() or "2025"
-                doenca = input("Doença (dengue/chikungunya/zika) [dengue]: ").strip() or "dengue"
+                print("\nEscolha as doenças:")
+                print("  [1] Apenas Dengue")
+                print("  [2] Apenas Chikungunya")
+                print("  [3] Apenas Zika")
+                print("  [4] Dengue + Chikungunya")
+                print("  [5] Dengue + Zika")
+                print("  [6] Chikungunya + Zika")
+                print("  [7] Todas (Dengue + Chikungunya + Zika)")
+                d_opt = input("Opção de arboviroses [1-7, padrão 1]: ").strip() or "1"
+
+                mapping = {
+                    "1": ["dengue"],
+                    "2": ["chikungunya"],
+                    "3": ["zika"],
+                    "4": ["dengue", "chikungunya"],
+                    "5": ["dengue", "zika"],
+                    "6": ["chikungunya", "zika"],
+                    "7": ["dengue", "chikungunya", "zika"],
+                }
+                selected_diseases = mapping.get(d_opt, ["dengue"])
                 open_ui = input("Abrir Streamlit ao final? (s/N): ").strip().lower() == "s"
 
                 execute_callback(
                     start_year=int(ano_ini),
                     end_year=int(ano_fim),
-                    disease=doenca,
+                    diseases=selected_diseases,
                     start_streamlit=open_ui,
                 )
             except ValueError:
                 print(_colorize("Erro: Ano deve ser um número inteiro válido.", red))
         elif choice == "3":
-            print_status(data_dir)
+            print("\n" + _colorize("Iniciando coleta integrada das 3 arboviroses...", green))
+            ano_ini = input("Ano inicial [padrão: 2024]: ").strip() or "2024"
+            ano_fim = input("Ano final   [padrão: 2025]: ").strip() or "2025"
+            execute_callback(
+                start_year=int(ano_ini),
+                end_year=int(ano_fim),
+                diseases=["dengue", "chikungunya", "zika"],
+            )
         elif choice == "4":
+            print_status(data_dir)
+        elif choice == "5":
             ano_filtro = input("Filtrar por ano específico (deixe vazio para resumo anual): ").strip()
             y = int(ano_filtro) if ano_filtro.isdigit() else None
             print_summary(data_dir, year=y)
-        elif choice == "5":
-            execute_callback(only_streamlit=True)
         elif choice == "6":
+            execute_callback(only_streamlit=True)
+        elif choice == "7":
             confirm = input(_colorize("Confirma a limpeza do Data Warehouse e CSVs? (s/N): ", yellow)).strip().lower()
             if confirm == "s":
                 rem = clean_storage(data_dir, clean_oltp=False)
                 print(_colorize(f"Limpeza concluída! Removidos: {', '.join(rem) or 'nenhum'}", green))
             else:
                 print("Operação cancelada.")
-        elif choice == "7":
+        elif choice == "8":
             confirm = input(_colorize("ATENÇÃO: Confirma reset TOTAL (OLTP + DW)? (s/N): ", red)).strip().lower()
             if confirm == "s":
                 rem = clean_storage(data_dir, clean_oltp=True)
@@ -294,4 +330,4 @@ def interactive_tui(data_dir: Path, execute_callback) -> None:
             else:
                 print("Operação cancelada.")
         else:
-            print(_colorize("Opção inválida! Digite um número de 0 a 7.", red))
+            print(_colorize("Opção inválida! Digite um número de 0 a 8.", red))

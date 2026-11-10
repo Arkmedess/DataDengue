@@ -55,8 +55,11 @@ Processa a coleta na API, popula o banco transacional relacional (OLTP em 3FN), 
 # Execução padrão (ano 2025, Dengue, Jundiaí)
 uv run python main.py
 
-# Personalizar anos e arbovirose (dengue, chikungunya ou zika)
-uv run python main.py --start-year 2020 --end-year 2026 --disease dengue
+# Executar com arboviroses combinadas (Dengue, Chikungunya e Zika)
+uv run python main.py --all-diseases --start-year 2024 --end-year 2025
+
+# Ou selecionar apenas duas (ex.: Dengue + Chikungunya)
+uv run python main.py --diseases dengue chikungunya --start-year 2024 --end-year 2025
 
 # Executar e abrir o Streamlit ao final
 uv run python main.py --ui
