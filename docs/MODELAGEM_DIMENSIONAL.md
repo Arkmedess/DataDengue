@@ -6,16 +6,16 @@ Este documento descreve a arquitetura de dados concebida para atender aos requis
 
 ## 1. Topologia da Solução
 
-O projeto implementa a jornada completa desde a ingestão da fonte primária (API InfoDengue/Fiocruz), passando pela normalização transacional (OLTP em 3FN) e pela carga dimensional (Star Schema/OLAP) no Data Warehouse:
+O projeto implementa a jornada completa desde a ingestão da fonte primária (API InfoDengue/Fiocruz), passando pela normalização transacional (OLTP em 3FN com suporte a múltiplas arboviroses) e pela carga dimensional (Star Schema/OLAP) no Data Warehouse:
 
 ```mermaid
 flowchart TD
-    API["InfoDengue API (Fiocruz)"] --> Ingest["Ingestão / Extrator Python"]
+    API["InfoDengue API (Fiocruz)"] --> Ingest["Ingestão / Extrator Python (Retries & Backoff)"]
     
     subgraph OLTP["1. Banco de Dados Transacional (3FN)"]
         Ingest --> M["tb_municipio"]
         Ingest --> U["tb_unidade_notificadora"]
-        Ingest --> N["tb_notificacao_dengue"]
+        Ingest --> N["tb_notificacao_dengue (multi-doença)"]
         Ingest --> C["tb_monitoramento_climatico"]
         Ingest --> A["tb_alerta_epidemiologico"]
     end
@@ -29,6 +29,7 @@ flowchart TD
         Transform --> DM["dim_municipio"]
         Transform --> DA["dim_alerta"]
         Transform --> DC["dim_clima"]
+        Transform --> DD["dim_doenca"]
         Transform --> FATO["fato_casos_dengue"]
     end
 
@@ -49,6 +50,7 @@ erDiagram
     dim_municipio ||--o{ fato_casos_dengue : "sk_municipio"
     dim_alerta ||--o{ fato_casos_dengue : "sk_alerta"
     dim_clima ||--o{ fato_casos_dengue : "sk_clima"
+    dim_doenca ||--o{ fato_casos_dengue : "sk_doenca"
 
     dim_tempo {
         int sk_tempo PK "YYYYMMDD"
@@ -90,12 +92,21 @@ erDiagram
         string risco_clima_proliferacao "Baixo, Moderado, Crítico"
     }
 
+    dim_doenca {
+        int sk_doenca PK "1: Dengue, 2: Chikungunya, 3: Zika"
+        string nome_doenca "Dengue, Chikungunya, Zika"
+        string codigo_cid10 "A90, A92.0, A92.8"
+        string vetor_transmissor "Aedes aegypti / albopictus"
+        string descricao_clinica
+    }
+
     fato_casos_dengue {
         int sk_fato PK
         int sk_tempo FK
         int sk_municipio FK
         int sk_alerta FK
         int sk_clima FK
+        int sk_doenca FK
         int casos_notificados "Fato Aditivo"
         real casos_estimados "Nowcasting"
         real diferenca_nowcasting "Subnotificação estimada"
@@ -138,9 +149,16 @@ Categorização dos fatores ambientais que governam a velocidade reprodutiva do 
 * **`faixa_umidade`**: Baixa ($<60\%$), Ideal ao Vetor ($60-80\%$), Alta ($>80\%$).
 * **`risco_clima_proliferacao`**: Cruzamento ambiental (Baixo, Moderado, Crítico).
 
-### 3.5. Tabela Fato (`fato_casos_dengue`)
-Fatos métricos quantitativos semanais:
-* **`casos_notificados`**: Casos brutos registrados na semana.
+### 3.5. Dimensão Doença / Agravo (`dim_doenca`)
+Categorização das arboviroses transmitidas pelo mesmo vetor (*Aedes aegypti*):
+* **`1` — Dengue:** CID-10 `A90`. Alta transmissibilidade com picos sazonais no outono.
+* **`2` — Chikungunya:** CID-10 `A92.0`. Marcada por febre e dores articulares persistentes.
+* **`3` — Zika:** CID-10 `A92.8`. Notificações raras em Jundiaí, com monitoramento ativo contra complicações congênitas.
+
+### 3.6. Tabela Fato (`fato_casos_dengue`)
+Fatos métricos quantitativos semanais por doença, tempo e clima:
+* **`sk_doenca`**: Chave estrangeira ligando à `dim_doenca`.
+* **`casos_notificados`**: Casos brutos registrados na semana para a respectiva arbovirose.
 * **`casos_estimados`**: Projeção estatística ajustada por atraso de notificação (*nowcasting* da Fiocruz).
 * **`diferenca_nowcasting`**: Diferença entre casos estimados e notificados, evidenciando represamento/atraso laboratorial.
 * **`incidencia_por_100k`**: $\frac{\text{casos}}{\text{população}} \times 100.000$, padrão epidemiológico internacional.
@@ -148,7 +166,24 @@ Fatos métricos quantitativos semanais:
 
 ---
 
-## 4. Como Executar o Pipeline
+## 4. Prevenção de Erros de Inserção e Resiliência de Dados
+
+Para assegurar confiabilidade no consumo analítico, o pipeline implementa guard-rails em todas as etapas:
+
+1. **Sanitização de Valores Nulos (`NaN`/`None`/`Infinity`):**
+   * Contadores numéricos de casos nulos ou negativos são convertidos automaticamente para `0`.
+   * Médias meteorológicas ausentes são convertidas para `None` e classificadas na dimensão clima como *"Não Informada"*.
+   * Níveis de alerta nulos ou inválidos são corrigidos defensivamente para `1` (Verde).
+2. **Isolamento de Poison Pills (Linhas Corrompidas):**
+   * O leitor transacional processa cada registro de forma isolada. Se uma linha vier com tipo de data quebrado ou string maliciosa, ela é registrada em `erros_ignorados` e descartada sem abortar o lote de dados válidos.
+3. **Resiliência de Rede e Rate Limit:**
+   * Requisições HTTP possuem timeout explícito (30s) e política de retry com **Exponential Backoff** (esperas de 1s, 2s e 4s) para códigos 429, 500, 502, 503 e 504.
+4. **Idempotência Estrita no Banco:**
+   * Utilização de `ON CONFLICT(id_municipio, semana_ano, doenca) DO UPDATE SET` para garantir que reprocessamentos sucessivos atualizem os dados sem duplicar registros.
+
+---
+
+## 5. Como Executar o Pipeline
 
 ```bash
 # Sincroniza ambiente e dependências
@@ -157,9 +192,21 @@ uv sync
 # Executa testes unitários e de integração
 uv run pytest
 
-# Executa o pipeline de dados completo (API -> OLTP -> DW -> CSVs)
+# Carga padrão (Dengue, ano 2025)
 uv run python main.py
 
-# Para executar o pipeline e abrir o Streamlit:
-uv run python main.py --ui
+# Carga das 3 arboviroses (Dengue + Chikungunya + Zika) para o período 2020 a 2025
+uv run python main.py --all-diseases --start-year 2020 --end-year 2025
+
+# Carga de duas doenças específicas
+uv run python main.py --diseases dengue chikungunya --start-year 2024 --end-year 2025
+
+# Menu interativo TUI
+uv run python main.py --tui
+
+# Consultar status dos bancos
+uv run python main.py status
+
+# Resumo consolidado no terminal
+uv run python main.py summary
 ```

@@ -89,7 +89,23 @@ uv run python main.py clean -y
 uv run python main.py clean --all -y
 ```
 
-### 4. Rodar os Testes
+### 4. Guia Rápido de Opções e Flags da CLI
+
+| Flag / Comando | Argumentos | Padrão | Descrição |
+| :--- | :--- | :--- | :--- |
+| `--all-diseases` | N/A | `False` | Coleta e carrega as 3 arboviroses (Dengue, Chikungunya e Zika) em lote. |
+| `--diseases` | `<d1> <d2>...` | `None` | Permite selecionar múltiplas doenças (ex.: `--diseases dengue chikungunya`). |
+| `--disease` | `dengue\|chikungunya\|zika` | `dengue` | Consulta uma única arbovirose. |
+| `--start-year` | `YYYY` (2010 a 2026) | `2025` | Ano inicial da série histórica (auto-corrige se invertido). |
+| `--end-year` | `YYYY` (2010 a 2026) | `2025` | Ano final da série histórica. |
+| `--geocode` | Código IBGE | `3525904` | Município a monitorar (padrão: Jundiaí/SP). |
+| `--ui` | N/A | `False` | Abre a interface analítica Streamlit no navegador ao concluir a carga. |
+| `--tui` ou `-i` | N/A | `False` | Abre o menu interativo no terminal (TUI). |
+| `status` | Subcomando | N/A | Exibe saúde dos bancos SQLite, períodos, tamanho em KB e CSVs gerados. |
+| `summary` | `--year`, `--limit`, `--json` | N/A | Exibe resumo epidemiológico anual ou semanal diretamente no terminal. |
+| `clean` | `--all`, `-y` | N/A | Remove tabelas analíticas do DW (ou reset total com `--all`). |
+
+### 5. Rodar os Testes
 ```bash
 uv run pytest
 ```
