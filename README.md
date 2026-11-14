@@ -1,6 +1,6 @@
 # DataDengue
 
-Pipeline de engenharia de dados e inteligência epidemiológica para monitoramento de arboviroses (**Dengue, Chikungunya e Zika**) a partir da **API InfoDengue (Fiocruz/EMAp)**, desenvolvido para o **Projeto Integrador FATEC — Desafio de Dados (2026)**. Estrutura o ciclo analítico completo: ingestão relacional em 3FN (**PostgreSQL**), modelagem dimensional (**Star Schema**), geração de **SQL Views**, exportação de datasets, inspeção via **JetBrains DataGrip**, dashboard web com **DataGrid** e painel executivo no **Power BI (.pbix / .pbip)**.
+Pipeline de dados para monitoramento de **Dengue, Chikungunya e Zika** em Jundiaí/SP usando a **API InfoDengue (Fiocruz)**, desenvolvido para o **Projeto Integrador FATEC (Desafio de Dados 2026)**. O projeto cobre a coleta dos dados, o armazenamento organizado no **PostgreSQL** (banco de origem e Star Schema), a inspeção no **DataGrip**, um painel web em **Streamlit** e o relatório final no **Power BI (.pbix / .pbip)**.
 
 **Integrantes do Grupo:** Aline, Arthur, Matheus, Rayllis e Rebeca.
 
@@ -68,7 +68,7 @@ DataDengue/
 Os dados são consumidos diretamente da API pública do **InfoDengue** (Fiocruz e FGV/EMAp), cruzando dados laboratoriais do SINAN com dados meteorológicos (satélite e estações aeroportuárias).
 
 ### Parâmetros Suportados (`src/models.py`)
-* `geocode`: Código IBGE do município (padrão: `3525904` — Jundiaí/SP).
+* `geocode`: Código IBGE do município (padrão: `3525904`, Jundiaí/SP).
 * `disease`: Arbovirose (`dengue`, `chikungunya`, `zika`). Suporta ingestão multi-doenças em lote.
 * `ew_start` / `ew_end`: Semanas epidemiológicas (1 a 53).
 * `ey_start` / `ey_end`: Anos da série histórica (2010 a 2026, com autocorreção caso invertidos).
@@ -181,7 +181,7 @@ uv run streamlit run src/dashboard.py
 
 ## Power BI (.pbix / .pbip) & Apresentação
 
-O painel no Power BI Desktop segue a identidade visual em azul e branco do **SUS** (Relatório de Alastramento — Jundiaí/SP, série histórica **2016–2026** com **1.556 registros semanais**), trazendo filtros de **Ano**, **Mês**, **Doença** e **Estação do Ano**, além de comparativo de *Nowcasting*, dispersão climática, níveis de alerta e distribuição sazonal.
+O painel no Power BI Desktop segue a identidade visual em azul e branco do **SUS** (Relatório de Alastramento de Jundiaí/SP, série histórica **2016–2026** com **1.556 registros semanais**), trazendo filtros de **Ano**, **Mês**, **Doença** e **Estação do Ano**, além de comparativo de *Nowcasting*, relação com o clima, níveis de alerta e distribuição por estação.
 
 1. **Conexão Direta ao PostgreSQL:** Obter Dados $\rightarrow$ Banco de Dados PostgreSQL (`localhost:5432`, banco `datadengue`) $\rightarrow$ selecione as tabelas do schema `dw` ou a view **`dw.vw_star_schema_completo`**.
 2. **Conexão via CSVs:** Obter Dados $\rightarrow$ Pasta `data/dw/` com os 6 datasets prontos.
@@ -205,13 +205,13 @@ uv run pytest
 
 ## Demonstração da Interface
 
-### Power BI — View Pública (SUS / Jundiaí)
+### Power BI: View Pública (SUS / Jundiaí)
 
 Acesse o painel interativo publicado online: **[Abrir Relatório Público no Power BI](https://app.powerbi.com/view?r=eyJrIjoiZWI4MTZlYzgtNTVkYy00ZDliLTkzYmUtZDZjOTAzOTU5OGMzIiwidCI6ImVhYmU2NGM1LTY4ZjUtNGE3Ni04MzAxLTk1NzdhNjc5ZTQ0OSIsImMiOjR9)**
 
 ![Dashboard Power BI - View Pública](docs/DashDataDengue.png)
 
-### Streamlit — Dashboard Web & DataGrid Inspector
+### Streamlit: Dashboard Web & DataGrid Inspector
 
 <img width="1836" height="698" alt="Visão Geral do Painel" src="https://github.com/user-attachments/assets/0194105f-4906-4e3a-a095-9825f9151dd7" />
 
