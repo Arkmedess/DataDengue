@@ -155,7 +155,6 @@ def print_status(data_dir: Path, engine: Engine | None = None) -> None:
         print(f"• Banco de Dados PostgreSQL: {_colorize('OFFLINE / NÃO CONECTADO', red)}")
         print("  Execute: docker compose up -d")
 
-    # CSVs
     if st["csvs_gerados"]:
         print(f"• Datasets Power BI (CSV):    {len(st['csvs_gerados'])} arquivos em {data_dir / 'dw'}")
         for csv_name in sorted(st["csvs_gerados"]):

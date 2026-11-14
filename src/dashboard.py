@@ -4,16 +4,13 @@ from typing import cast
 import pandas as pd
 import streamlit as st
 
-# 1. Configuração da Página (Sempre a primeira linha do Streamlit)
 st.set_page_config(
     page_title="Painel InfoDengue - Jundiaí", page_icon="🦟", layout="wide"
 )
 
 
-# 2. Carregamento de Dados (Com cache para não travar o app)
 @st.cache_data
 def carregar_dados():
-    # 1. Tenta carregar diretamente do PostgreSQL através da View Dimensional
     try:
         from sqlalchemy import text
         from src.database import get_engine
@@ -50,7 +47,6 @@ def carregar_dados():
     except Exception:
         pass
 
-    # 2. Fallback para o arquivo CSV consolidado
     caminho_arquivo = (
         Path(__file__).resolve().parent.parent / "data" / "Dengue_Jundiai.csv"
     )
@@ -66,23 +62,18 @@ def carregar_dados():
 
 df = carregar_dados()
 
-# ==========================================
-# BARRA LATERAL (Filtros Interativos)
-# ==========================================
 st.sidebar.title("🔍 Filtros Dinâmicos")
 st.sidebar.write("Use os controles abaixo para explorar os dados.")
 
-# Interação 1: Slider de Semanas Epidemiológicas
 semana_min: int = int(min(df["SE"]))
 semana_max = int(max(df["SE"]))
 semanas_selecionadas = st.sidebar.slider(
     "1. Selecione o período (Semanas):",
     min_value=semana_min,
     max_value=semana_max,
-    value=(semana_min, semana_max),  # Seleciona tudo por padrão
+    value=(semana_min, semana_max),
 )
 
-# Interação 2: Dropdown de Múltipla Escolha para Status de Alerta
 alertas_disponiveis = df["alerta_status"].unique().tolist()
 alertas_selecionados = st.sidebar.multiselect(
     "2. Filtrar por Nível de Alerta:",
@@ -90,7 +81,6 @@ alertas_selecionados = st.sidebar.multiselect(
     default=alertas_disponiveis,
 )
 
-# Interação 3: Dropdown de Múltipla Escolha para Doença (quando disponível)
 if "doenca" in df.columns:
     doencas_disponiveis = sorted(df["doenca"].unique().tolist())
     doencas_selecionadas = st.sidebar.multiselect(
@@ -102,7 +92,6 @@ if "doenca" in df.columns:
 else:
     filtro_doenca = True
 
-# Aplicando os filtros no DataFrame
 df_filtrado = df[
     (df["SE"] >= semanas_selecionadas[0])
     & (df["SE"] <= semanas_selecionadas[1])
@@ -110,7 +99,6 @@ df_filtrado = df[
     & filtro_doenca
 ]
 
-# LAYOUT PRINCIPAL (Dashboard)
 st.title("📊 Monitoramento de Dengue - Jundiaí (2026)")
 st.markdown(
     "Acompanhamento de casos, estimativas e fatores climáticos com base nos dados do **InfoDengue**."
@@ -132,7 +120,6 @@ st.caption(
     f"{total_linhas} semanas exibidas"
 )
 
-# --- KPIs (Métricas de Destaque) ---
 col1, col2, col3, col4 = st.columns(4)
 
 with col1:
@@ -146,11 +133,7 @@ with col2:
 with col3:
     if not df_filtrado.empty:
         pico_casos = int(max(df_filtrado["casos"]))
-
-        # 1. Tipagem explícita: Avisamos ao editor que isto é uma Series do Pandas
         serie_casos: pd.Series = cast(pd.Series, df_filtrado["casos"])
-
-        # 2. Agora o idxmax() funciona nativamente e sem alertas!
         semana_pico = df_filtrado.loc[serie_casos.idxmax(), "SE"]
     else:
         pico_casos = 0
@@ -160,16 +143,11 @@ with col3:
 
 with col4:
     if not df_filtrado.empty:
-        # 1. Forçamos o editor a reconhecer a coluna como uma Series do Pandas
         serie_alerta = cast(pd.Series, df_filtrado["alerta_status"])
-
-        # 2. Buscamos a moda. Como o .mode() retorna uma Series, extraímos o primeiro valor (.iloc[0])
-        # e forçamos para string nativa usando str()
         alerta_predominante = str(serie_alerta.mode().iloc[0])
     else:
         alerta_predominante = "-"
 
-    # Agora o st.metric recebe uma string pura (coberta pelo tipo "Value") e o erro some!
     st.metric("Alerta Predominante", alerta_predominante)
 
 st.divider()
@@ -215,7 +193,6 @@ with col_semana_3:
 
 st.divider()
 
-# --- GRÁFICOS ---
 tab_casos, tab_clima, tab_alertas = st.tabs(
     ["Evolucao de Casos", "Clima e Casos", "Alertas"]
 )
@@ -259,7 +236,6 @@ with tab_alertas:
     else:
         st.info("Coluna 'nivel' nao encontrada na base para gerar a serie temporal.")
 
-# --- VISUALIZAÇÃO DOS DADOS VIA DATAGRID ---
 st.divider()
 st.subheader("📋 Visualização Interativa via DataGrid")
 tab_grid_filtrado, tab_grid_dw = st.tabs(["📊 Dados Filtrados da Aplicação", "🗄️ Tabelas do Data Warehouse (Star Schema)"])

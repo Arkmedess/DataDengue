@@ -50,10 +50,8 @@ def execute_pipeline(
     print("PROJETO INTEGRADOR FATEC - DATA-TO-INSIGHT JOURNEY (POSTGRESQL)")
     print("=" * 70)
 
-    # Conexão com PostgreSQL
     engine = get_engine()
 
-    # 1. Coleta na API InfoDengue
     print(
         f"1. Coletando dados da API InfoDengue...\n"
         f"   • Município (Geocode): {geocode}\n"
@@ -74,12 +72,10 @@ def execute_pipeline(
 
     print(f"   -> Total de {len(df_raw)} registros epidemiológicos brutos obtidos.")
 
-    # 2. Compatibilidade legada
     df_polish = polish_data(df_raw)
     if not df_polish.empty:
         export_csv(df_polish, file_name="Dengue_Jundiai.csv")
 
-    # 3. Inicialização e Carga no Banco Transacional PostgreSQL (Schema oltp)
     print("\n2. Inicializando Banco de Dados Transacional (PostgreSQL schema: oltp)...")
     init_oltp_db(engine)
     oltp_stats = load_oltp_from_raw_df(df_raw, engine=engine, geocode=geocode)
@@ -88,7 +84,6 @@ def execute_pipeline(
     if oltp_stats.get("erros_ignorados", 0) > 0:
         print(f"   -> {oltp_stats['erros_ignorados']} registros corrompidos prevenidos e ignorados.")
 
-    # 4. Pipeline de ETL Dimensional no PostgreSQL (Schema dw)
     print("\n3. Executando Pipeline de ETL Dimensional (PostgreSQL schema: dw)...")
     init_dw_db(engine)
     etl_summary = run_etl(engine=engine, export_csv_dir=DW_CSV_DIR)
@@ -103,7 +98,6 @@ def execute_pipeline(
     print("Schemas: oltp (3FN) e dw (Star Schema + Views)")
     print("=" * 70)
 
-    # 5. Opcional: Abertura do Dashboard Streamlit
     if start_streamlit:
         print("\nIniciando interface analítica Streamlit...")
         subprocess.run([sys.executable, "-m", "streamlit", "run", "src/dashboard.py"])
@@ -162,7 +156,6 @@ def main() -> None:
         help="Código IBGE do município (padrão: 3525904 - Jundiaí)",
     )
 
-    # Subcomandos
     subparsers = parser.add_subparsers(dest="command", help="Comandos utilitários")
     subparsers.add_parser("status", help="Exibe status do banco PostgreSQL, tabelas e CSVs")
 
@@ -198,7 +191,6 @@ def main() -> None:
 
     args = parser.parse_args()
 
-    # Roteamento dos comandos
     if args.tui or args.command == "tui":
         interactive_tui(DATA_DIR, execute_pipeline)
     elif args.command == "status":
