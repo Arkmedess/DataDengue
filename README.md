@@ -47,7 +47,8 @@ DataDengue/
 │   └── medidas_power_bi.dax        # 16 medidas calculadas prontas para Power BI
 │
 ├── docs/                           # Documentação e apresentação do projeto
-│   └── Apresentacao_DataDengue.pdf # Apresentação final em PDF (Visão de Negócio)
+│   ├── Apresentacao_DataDengue.pdf # Apresentação final em PDF (Visão de Negócio)
+│   └── DashDataDengue.png          # Captura da View Pública do Power BI
 │
 ├── powerbi/                        # Projeto Power BI (.pbix e .pbip)
 │   ├── Atividade_Sabado.pbix       # Dashboard completo com medidas DAX
@@ -186,7 +187,8 @@ O painel no Power BI Desktop segue a identidade visual em azul e branco do **SUS
 2. **Conexão via CSVs:** Obter Dados $\rightarrow$ Pasta `data/dw/` com os 6 datasets prontos.
 3. **Medidas DAX:** Copie as 16 fórmulas prontas disponíveis em [dax/medidas_power_bi.dax](dax/medidas_power_bi.dax).
 
-> **Documentação e Apresentação:**
+> **Documentação, Apresentação e View Pública:**
+> * **Dashboard Público (Power BI Online):** [Acessar View Pública Interativa](https://app.powerbi.com/view?r=eyJrIjoiZWI4MTZlYzgtNTVkYy00ZDliLTkzYmUtZDZjOTAzOTU5OGMzIiwidCI6ImVhYmU2NGM1LTY4ZjUtNGE3Ni04MzAxLTk1NzdhNjc5ZTQ0OSIsImMiOjR9)
 > * Apresentação em PDF (Visão de Negócio): [docs/Apresentacao_DataDengue.pdf](docs/Apresentacao_DataDengue.pdf)
 > * Projeto Power BI: [powerbi/Atividade_Sabado.pbix](powerbi/Atividade_Sabado.pbix) e [powerbi/Atividade_Sabado.pbip](powerbi/Atividade_Sabado.pbip)
 
@@ -202,6 +204,14 @@ uv run pytest
 ---
 
 ## Demonstração da Interface
+
+### Power BI — View Pública (SUS / Jundiaí)
+
+Acesse o painel interativo publicado online: **[Abrir Relatório Público no Power BI](https://app.powerbi.com/view?r=eyJrIjoiZWI4MTZlYzgtNTVkYy00ZDliLTkzYmUtZDZjOTAzOTU5OGMzIiwidCI6ImVhYmU2NGM1LTY4ZjUtNGE3Ni04MzAxLTk1NzdhNjc5ZTQ0OSIsImMiOjR9)**
+
+![Dashboard Power BI - View Pública](docs/DashDataDengue.png)
+
+### Streamlit — Dashboard Web & DataGrid Inspector
 
 <img width="1836" height="698" alt="Visão Geral do Painel" src="https://github.com/user-attachments/assets/0194105f-4906-4e3a-a095-9825f9151dd7" />
 
