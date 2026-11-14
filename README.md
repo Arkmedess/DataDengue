@@ -1,10 +1,12 @@
 # DataDengue
 
-Pipeline de engenharia de dados e inteligência epidemiológica para monitoramento de arboviroses (**Dengue, Chikungunya e Zika**) a partir da **API InfoDengue (Fiocruz/EMAp)**. Estrutura o ciclo analítico completo: ingestão relacional em 3FN (**PostgreSQL**), modelagem dimensional (**Star Schema**), geração de **SQL Views**, exportação de datasets, inspeção via **JetBrains DataGrip**, dashboard web com **DataGrid** e suporte para **Power BI (.pbix)**.
+Pipeline de engenharia de dados e inteligência epidemiológica para monitoramento de arboviroses (**Dengue, Chikungunya e Zika**) a partir da **API InfoDengue (Fiocruz/EMAp)**, desenvolvido para o **Projeto Integrador FATEC — Desafio de Dados (2026)**. Estrutura o ciclo analítico completo: ingestão relacional em 3FN (**PostgreSQL**), modelagem dimensional (**Star Schema**), geração de **SQL Views**, exportação de datasets, inspeção via **JetBrains DataGrip**, dashboard web com **DataGrid** e painel executivo no **Power BI (.pbix / .pbip)**.
+
+**Integrantes do Grupo:** Aline, Arthur, Matheus, Rayllis e Rebeca.
 
 ---
 
-## 🗂️ Árvore de Diretórios do Projeto
+## Árvore de Diretórios do Projeto
 
 ```text
 DataDengue/
@@ -44,10 +46,12 @@ DataDengue/
 ├── dax/                            # Fórmulas e Medidas DAX
 │   └── medidas_power_bi.dax        # 16 medidas calculadas prontas para Power BI
 │
-├── docs/                           # Guias detalhados de uso e arquitetura
-│   ├── GUIA_WINDOWS_WSL.md         # Passo a passo completo para Windows, WSL 2 e DataGrip
-│   ├── GUIA_POWER_BI.md            # Guia prático de modelagem e visuais para Power BI (.pbix)
-│   └── MODELAGEM_DIMENSIONAL.md    # Dicionário de dados e arquitetura do Star Schema
+├── docs/                           # Documentação e apresentação do projeto
+│   └── Apresentacao_DataDengue.pdf # Apresentação final em PDF (Visão de Negócio)
+│
+├── powerbi/                        # Projeto Power BI (.pbix e .pbip)
+│   ├── Atividade_Sabado.pbix       # Dashboard completo com medidas DAX
+│   └── Atividade_Sabado.pbip       # Projeto PBIP (Report + SemanticModel)
 │
 └── tests/                          # Suíte de testes automatizados (pytest)
     ├── test_cli_service.py
@@ -58,7 +62,7 @@ DataDengue/
 
 ---
 
-## 🌐 A API InfoDengue & Parâmetros
+## A API InfoDengue & Parâmetros
 
 Os dados são consumidos diretamente da API pública do **InfoDengue** (Fiocruz e FGV/EMAp), cruzando dados laboratoriais do SINAN com dados meteorológicos (satélite e estações aeroportuárias).
 
@@ -70,7 +74,7 @@ Os dados são consumidos diretamente da API pública do **InfoDengue** (Fiocruz 
 
 ---
 
-## 🏛️ Arquitetura de Dados: PostgreSQL (`oltp` e `dw`)
+## Arquitetura de Dados: PostgreSQL (`oltp` e `dw`)
 
 O banco utiliza dois esquemas lógicos desacoplados no PostgreSQL:
 
@@ -92,7 +96,7 @@ O banco utiliza dois esquemas lógicos desacoplados no PostgreSQL:
 
 ---
 
-## 🚀 Instalação e Execução Rápida
+## Instalação e Execução Rápida
 
 ### Pré-requisitos
 * **Docker** e **Docker Compose**
@@ -115,7 +119,7 @@ uv run python main.py --all-diseases
 
 ---
 
-## ⌨️ Comandos da CLI & Utilitários (Tabela Completa)
+## Comandos da CLI & Utilitários (Tabela Completa)
 
 A aplicação pode ser operada via linha de comando (`main.py`) com flags ou subcomandos:
 
@@ -152,7 +156,7 @@ uv run python main.py clean -y
 
 ---
 
-## 🗄️ Inspeção no JetBrains DataGrip
+## Inspeção no JetBrains DataGrip
 
 Para visualizar esquemas, tabelas e diagramas no **DataGrip**:
 1. Crie um novo Data Source: **PostgreSQL**.
@@ -164,31 +168,31 @@ Para visualizar esquemas, tabelas e diagramas no **DataGrip**:
 
 ---
 
-## 📊 Visualização no DataGrid (Streamlit)
+## Visualização no DataGrid (Streamlit)
 
 O projeto inclui um dashboard com visualização interativa de dados em grade:
 ```bash
 uv run streamlit run src/dashboard.py
 ```
-- Acesse a aba **`🔍 DataGrid Inspector`** para navegar por qualquer tabela do `dw` ou `oltp`, ordenar colunas, aplicar filtros e exportar recortes.
+- Acesse a aba **`DataGrid Inspector`** para navegar por qualquer tabela do `dw` ou `oltp`, ordenar colunas, aplicar filtros e exportar recortes.
 
 ---
 
-## 📈 Power BI (.pbix) & Integração
+## Power BI (.pbix / .pbip) & Apresentação
 
-Para construir o painel no Power BI Desktop:
-1. **Conexão Direta ao PostgreSQL:** Obter Dados $\rightarrow$ Banco de Dados PostgreSQL (`localhost:5432`, banco `datadengue`) $\rightarrow$ selecione a view **`dw.vw_star_schema_completo`**.
+O painel no Power BI Desktop segue a identidade visual em azul e branco do **SUS** (Relatório de Alastramento — Jundiaí/SP, série histórica **2016–2026** com **1.556 registros semanais**), trazendo filtros de **Ano**, **Mês**, **Doença** e **Estação do Ano**, além de comparativo de *Nowcasting*, dispersão climática, níveis de alerta e distribuição sazonal.
+
+1. **Conexão Direta ao PostgreSQL:** Obter Dados $\rightarrow$ Banco de Dados PostgreSQL (`localhost:5432`, banco `datadengue`) $\rightarrow$ selecione as tabelas do schema `dw` ou a view **`dw.vw_star_schema_completo`**.
 2. **Conexão via CSVs:** Obter Dados $\rightarrow$ Pasta `data/dw/` com os 6 datasets prontos.
 3. **Medidas DAX:** Copie as 16 fórmulas prontas disponíveis em [dax/medidas_power_bi.dax](dax/medidas_power_bi.dax).
 
-> 📖 **Guias dedicados:**
-> * Passo a passo no Windows e WSL 2: [docs/GUIA_WINDOWS_WSL.md](docs/GUIA_WINDOWS_WSL.md)
-> * Guia de montagem do painel no Power BI: [docs/GUIA_POWER_BI.md](docs/GUIA_POWER_BI.md)
-> * Dicionário de dados da modelagem dimensional: [docs/MODELAGEM_DIMENSIONAL.md](docs/MODELAGEM_DIMENSIONAL.md)
+> **Documentação e Apresentação:**
+> * Apresentação em PDF (Visão de Negócio): [docs/Apresentacao_DataDengue.pdf](docs/Apresentacao_DataDengue.pdf)
+> * Projeto Power BI: [powerbi/Atividade_Sabado.pbix](powerbi/Atividade_Sabado.pbix) e [powerbi/Atividade_Sabado.pbip](powerbi/Atividade_Sabado.pbip)
 
 ---
 
-## 🧪 Testes Automatizados
+## Testes Automatizados
 
 A suíte de testes valida a integridade do banco de dados, idempotência, resiliência a dados corrompidos e consistência do ETL diretamente contra o PostgreSQL:
 ```bash
@@ -197,7 +201,7 @@ uv run pytest
 
 ---
 
-## 📸 Demonstração da Interface
+## Demonstração da Interface
 
 <img width="1836" height="698" alt="Visão Geral do Painel" src="https://github.com/user-attachments/assets/0194105f-4906-4e3a-a095-9825f9151dd7" />
 
