@@ -1,0 +1,11 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
+  "metadata": {
+    "type": "Report",
+    "displayName": "Atividade_Sabado"
+  },
+  "config": {
+    "version": "2.0",
+    "logicalId": "9b7669f3-8827-4bec-a4d4-ea86a4a72d84"
+  }
+}

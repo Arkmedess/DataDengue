@@ -1,0 +1,57 @@
+table dim_doenca
+	lineageTag: 9061a75c-cf19-4a3e-b50a-05790134641b
+
+	column sk_doenca
+		dataType: int64
+		formatString: 0
+		lineageTag: 8e81dc9d-3b57-4aa1-bbd5-9219c0e347eb
+		summarizeBy: none
+		sourceColumn: sk_doenca
+
+		annotation SummarizationSetBy = Automatic
+
+	column nome_doenca
+		dataType: string
+		lineageTag: 1b0ee02e-e7b0-45ff-9c34-d54bb6f3067a
+		summarizeBy: none
+		sourceColumn: nome_doenca
+
+		annotation SummarizationSetBy = Automatic
+
+	column codigo_cid10
+		dataType: string
+		lineageTag: 1088debb-cac7-4130-a57b-412be6a35efc
+		summarizeBy: none
+		sourceColumn: codigo_cid10
+
+		annotation SummarizationSetBy = Automatic
+
+	column vetor_transmissor
+		dataType: string
+		lineageTag: 3b0c2738-d662-40d7-a27d-6fb09b770798
+		summarizeBy: none
+		sourceColumn: vetor_transmissor
+
+		annotation SummarizationSetBy = Automatic
+
+	column descricao_clinica
+		dataType: string
+		lineageTag: 7f5b0ae8-122e-4bbc-8028-7bb9fe3ce318
+		summarizeBy: none
+		sourceColumn: descricao_clinica
+
+		annotation SummarizationSetBy = Automatic
+
+	partition dim_doenca = m
+		mode: import
+		source =
+				let
+				    Fonte = PostgreSQL.Database("localhost:5432", "datadengue"),
+				    dw_dim_doenca = Fonte{[Schema="dw",Item="dim_doenca"]}[Data]
+				in
+				    dw_dim_doenca
+
+	changedProperty = Name
+
+	annotation PBI_ResultType = Table
+

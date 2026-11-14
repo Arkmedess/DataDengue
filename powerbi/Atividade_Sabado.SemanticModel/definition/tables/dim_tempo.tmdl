@@ -1,0 +1,129 @@
+table dim_tempo
+	lineageTag: 57aeef85-b0b9-4646-9ae6-f957245f9f33
+
+	column sk_tempo
+		dataType: int64
+		formatString: 0
+		lineageTag: c70c85c5-45e7-4588-92be-a4c7d219c11a
+		summarizeBy: none
+		sourceColumn: sk_tempo
+
+		annotation SummarizationSetBy = Automatic
+
+	column data_inicio_semana
+		dataType: dateTime
+		formatString: Long Date
+		lineageTag: 135a7ddf-4291-4b4f-a2a0-a4bb6e33116a
+		summarizeBy: none
+		sourceColumn: data_inicio_semana
+
+		variation Variation
+			isDefault
+			relationship: 4a305842-4aa8-4039-9343-95613bde53ee
+			defaultHierarchy: LocalDateTable_5bbec424-c20f-4a7b-aac6-def69595a65e.'Hierarquia de datas'
+
+		annotation SummarizationSetBy = Automatic
+
+		annotation UnderlyingDateTimeDataType = Date
+
+	column semana_epidem
+		dataType: int64
+		formatString: 0
+		lineageTag: bff09b25-da6e-4606-89e1-f15c6cbc27dc
+		summarizeBy: sum
+		sourceColumn: semana_epidem
+
+		annotation SummarizationSetBy = Automatic
+
+	column ano_epidem
+		dataType: int64
+		formatString: 0
+		lineageTag: a3b5e7fa-3fac-4929-af45-85506ac1e5ee
+		summarizeBy: sum
+		sourceColumn: ano_epidem
+
+		annotation SummarizationSetBy = Automatic
+
+	column semana_ano
+		dataType: int64
+		formatString: 0
+		lineageTag: 16c028d2-65dc-4ab1-b4b2-413a24721826
+		summarizeBy: sum
+		sourceColumn: semana_ano
+
+		annotation SummarizationSetBy = Automatic
+
+	column mes
+		dataType: int64
+		formatString: 0
+		lineageTag: e4f88a77-67ad-4020-b5ee-955199ccbb38
+		summarizeBy: sum
+		sourceColumn: mes
+
+		annotation SummarizationSetBy = Automatic
+
+	column nome_mes
+		dataType: string
+		lineageTag: 301af7d4-1d45-4876-b08d-98f7ad3cc732
+		summarizeBy: none
+		sourceColumn: nome_mes
+		sortByColumn: mes
+
+		annotation SummarizationSetBy = Automatic
+
+	column ano
+		dataType: int64
+		formatString: 0
+		lineageTag: 6922e0ae-d1cc-458d-85ab-298b9abc4397
+		summarizeBy: sum
+		sourceColumn: ano
+
+		annotation SummarizationSetBy = Automatic
+
+	column trimestre
+		dataType: int64
+		formatString: 0
+		lineageTag: e487c959-cd40-45d4-baaa-c5fa79c6cad9
+		summarizeBy: sum
+		sourceColumn: trimestre
+
+		annotation SummarizationSetBy = Automatic
+
+	column ano_mes
+		dataType: string
+		lineageTag: dc7d2831-6561-48f4-85da-5bae7670f525
+		summarizeBy: none
+		sourceColumn: ano_mes
+
+		annotation SummarizationSetBy = Automatic
+
+	column quinzena
+		dataType: int64
+		formatString: 0
+		lineageTag: cb07a16f-1a70-4b10-a9b2-c47b4acf019b
+		summarizeBy: sum
+		sourceColumn: quinzena
+
+		annotation SummarizationSetBy = Automatic
+
+	column estacao_ano
+		dataType: string
+		lineageTag: 7b97279a-8ef1-4710-a875-d832d68ce0de
+		summarizeBy: none
+		sourceColumn: estacao_ano
+
+		annotation SummarizationSetBy = Automatic
+
+	partition dim_tempo = m
+		mode: import
+		source =
+				let
+				    Fonte = PostgreSQL.Database("localhost:5432", "datadengue"),
+				    dw_dim_tempo = Fonte{[Schema="dw",Item="dim_tempo"]}[Data]
+				in
+				    dw_dim_tempo
+
+	changedProperty = Name
+
+	annotation PBI_ResultType = Table
+

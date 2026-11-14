@@ -1,0 +1,107 @@
+{
+  "version": "1.1.0",
+  "diagrams": [
+    {
+      "ordinal": 0,
+      "scrollPosition": {
+        "x": 0,
+        "y": 0
+      },
+      "nodes": [
+        {
+          "location": {
+            "x": 906.78950990415967,
+            "y": 348.22453653490334
+          },
+          "nodeIndex": "_Medidas",
+          "nodeLineageTag": "e6a9b99d-7899-4bf6-8854-360ff5ae18db",
+          "size": {
+            "height": 104,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 388.57848281094562,
+            "y": 200.24787843977538
+          },
+          "nodeIndex": "fato_casos_dengue",
+          "size": {
+            "height": 300,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 50,
+            "y": 200.21585605837527
+          },
+          "nodeIndex": "dim_tempo",
+          "size": {
+            "height": 300,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 672.78950990415967,
+            "y": 79.735079614937661
+          },
+          "nodeIndex": "dim_municipio",
+          "size": {
+            "height": 224,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 240.89755914387138,
+            "y": 550.44907306980667
+          },
+          "nodeIndex": "dim_clima",
+          "size": {
+            "height": 200,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 672.75040628611782,
+            "y": 506.31547502216267
+          },
+          "nodeIndex": "dim_alerta",
+          "size": {
+            "height": 224,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 332.58412832169188,
+            "y": -50
+          },
+          "nodeIndex": "dim_doenca",
+          "size": {
+            "height": 200,
+            "width": 234
+          },
+          "zIndex": 0
+        }
+      ],
+      "name": "Todas as tabelas",
+      "zoomValue": 88.541666666666657,
+      "pinKeyFieldsToTop": false,
+      "showExtraHeaderInfo": false,
+      "hideKeyFieldsWhenCollapsed": false,
+      "tablesLocked": false
+    }
+  ],
+  "selectedDiagram": "Todas as tabelas",
+  "defaultDiagram": "Todas as tabelas"
+}

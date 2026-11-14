@@ -1,0 +1,128 @@
+table _Medidas
+	lineageTag: e6a9b99d-7899-4bf6-8854-360ff5ae18db
+
+	measure 'Total Casos' = SUM(fato_casos_dengue[casos_notificados])
+		formatString: #,0
+		lineageTag: 7b5052d8-8ba6-4ee7-8dfc-acb8ac029a1e
+
+	measure 'Total Estimado' = SUM(fato_casos_dengue[casos_estimados])
+		formatString: #,0
+		lineageTag: 7aadcb93-c115-4f55-abb3-c5aaa37bd6bc
+
+	measure 'Gap Subnotificacao' = [Total Estimado] - [Total Casos]
+		lineageTag: 927ff73a-fbbb-4ec9-987d-622ce24ad273
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	measure 'Percentual Subnotificacao' = DIVIDE([Gap Subnotificacao], [Total Casos], 0)
+		formatString: 0.00%;-0.00%;0.00%
+		lineageTag: ea9ac05d-2560-4795-a0c6-bc9b2b51611b
+
+	measure 'Total Confirmados' = SUM(fato_casos_dengue[casos_confirmados])
+		formatString: 0
+		lineageTag: e4e878fd-79ce-4d54-a85e-042d7ae28e9b
+
+	measure 'Total Provaveis' = SUM(fato_casos_dengue[casos_provaveis])
+		formatString: 0
+		lineageTag: 2ac769b2-3867-4b40-ab43-cdcdb007042c
+
+	measure 'Taxa Incidencia 100k' = ```
+			
+			    DIVIDE(
+			        [Total Casos],
+			        MAX(dim_municipio[populacao]),
+			        0
+			    ) * 100000
+			```
+		formatString: 0.0
+		lineageTag: fe0a82d4-609a-4003-a48a-25545acfa905
+
+	measure 'Rt Medio' = AVERAGE(fato_casos_dengue[taxa_rt])
+		formatString: 0.00
+		lineageTag: 708bab06-253d-4284-b6dc-ed93a6f446b1
+
+	measure 'Probabilidade Rt Maior 1' = AVERAGE(fato_casos_dengue[probabilidade_rt_maior_1])
+		formatString: 0.0%;-0.0%;0.0%
+		lineageTag: 351ba2f2-5e95-4ad0-bca9-7a63f60f1bec
+
+	measure 'Semanas Alerta Critico' = ```
+			
+			    CALCULATE(
+			        COUNTROWS(fato_casos_dengue),
+			        dim_alerta[nivel_alerta] IN {3, 4}
+			    )
+			```
+		formatString: 0
+		lineageTag: e6ec4e10-05e4-4507-8a41-7e05c0586e59
+
+	measure 'Media Movel 4 Semanas' = ```
+			
+			    CALCULATE(
+			        [Total Casos],
+			        DATESINPERIOD(
+			            dim_tempo[data_inicio_semana],
+			            LASTDATE(dim_tempo[data_inicio_semana]),
+			            -28,
+			            DAY
+			        )
+			    ) / 4
+			```
+		lineageTag: 4eff82ce-2268-4e5c-b8db-069ad663b76f
+
+		annotation PBI_FormatHint = {"isGeneralNumber":true}
+
+	measure 'Casos Semana Anterior' = ```
+			
+			    CALCULATE(
+			        [Total Casos],
+			        DATEADD(dim_tempo[data_inicio_semana], -7, DAY)
+			    )
+			```
+		formatString: 0
+		lineageTag: 76d80e6b-3d53-4282-9c28-3da2f5d018cd
+
+	measure 'Variacao Semanal WoW %' = ```
+			
+			    VAR CasosAtual = [Total Casos]
+			    VAR CasosAnt = [Casos Semana Anterior]
+			    RETURN
+			    DIVIDE(CasosAtual - CasosAnt, CasosAnt, 0)
+			```
+		formatString: 0.0%;-0.0%;0.0%
+		lineageTag: 7c6a3858-6828-459a-b849-63a840487979
+
+	measure 'Temperatura Media' = AVERAGE(fato_casos_dengue[temp_media_semana])
+		formatString: 0.0
+		lineageTag: da47f912-7b1d-4001-b26e-9316685479d8
+
+	measure 'Umidade Media' = AVERAGE(fato_casos_dengue[umid_media_semana])
+		formatString: 0.0
+		lineageTag: 3468236a-53f1-4e06-a3e1-2149f43d1590
+
+	measure 'Cor Status Alerta' = ```
+			
+			    VAR Nivel = SELECTEDVALUE(dim_alerta[nivel_alerta], 0)
+			    RETURN
+			    SWITCH(
+			        Nivel,
+			        1, "#2CA02C", -- Verde
+			        2, "#FFD700", -- Amarelo
+			        3, "#FFA500", -- Laranja
+			        4, "#FF4B4B", -- Vermelho
+			        "#333333"    -- Neutro
+			    )
+			```
+		lineageTag: f6671fd4-4c1d-49c8-bca5-15708b27e215
+
+	partition _Medidas = m
+		mode: import
+		source =
+				let
+				    Fonte = Table.FromRows(Json.Document(Binary.Decompress(Binary.FromText("i44FAA==", BinaryEncoding.Base64), Compression.Deflate)), let _t = ((type nullable text) meta [Serialized.Text = true]) in type table [#"Coluna 1" = _t]),
+				    #"Tipo Alterado" = Table.TransformColumnTypes(Fonte,{{"Coluna 1", type text}}),
+				    #"Colunas Removidas" = Table.RemoveColumns(#"Tipo Alterado",{"Coluna 1"})
+				in
+				    #"Colunas Removidas"
+
+	annotation PBI_ResultType = Table
+

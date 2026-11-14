@@ -1,0 +1,11 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
+  "metadata": {
+    "type": "SemanticModel",
+    "displayName": "Atividade_Sabado"
+  },
+  "config": {
+    "version": "2.0",
+    "logicalId": "effe0574-b1f5-440a-8c19-a93ac5355731"
+  }
+}

@@ -1,0 +1,67 @@
+table dim_municipio
+	lineageTag: 62126937-69c4-4673-8e54-11227fe76a0d
+
+	column sk_municipio
+		dataType: int64
+		formatString: 0
+		lineageTag: f6d9ab0d-540d-4eeb-b9a0-f15c486a1b73
+		summarizeBy: none
+		sourceColumn: sk_municipio
+
+		annotation SummarizationSetBy = Automatic
+
+	column geocode
+		dataType: int64
+		formatString: 0
+		lineageTag: 69071213-5ae8-49dc-9415-95b9a1d09c5e
+		summarizeBy: none
+		sourceColumn: geocode
+
+		annotation SummarizationSetBy = Automatic
+
+	column nome_municipio
+		dataType: string
+		lineageTag: 7ef2af93-6c74-4883-b193-6d85072baaa5
+		summarizeBy: none
+		sourceColumn: nome_municipio
+
+		annotation SummarizationSetBy = Automatic
+
+	column uf
+		dataType: string
+		lineageTag: 3a1ac7ac-b656-421d-909c-f721be55b527
+		summarizeBy: none
+		sourceColumn: uf
+
+		annotation SummarizationSetBy = Automatic
+
+	column populacao
+		dataType: int64
+		formatString: 0
+		lineageTag: 0d917d59-330a-4fb8-84ea-957ea8028689
+		summarizeBy: none
+		sourceColumn: populacao
+
+		annotation SummarizationSetBy = Automatic
+
+	column faixa_populacional
+		dataType: string
+		lineageTag: 98231e58-501a-45b8-ad93-ab8564318273
+		summarizeBy: none
+		sourceColumn: faixa_populacional
+
+		annotation SummarizationSetBy = Automatic
+
+	partition dim_municipio = m
+		mode: import
+		source =
+				let
+				    Fonte = PostgreSQL.Database("localhost:5432", "datadengue"),
+				    dw_dim_municipio = Fonte{[Schema="dw",Item="dim_municipio"]}[Data]
+				in
+				    dw_dim_municipio
+
+	changedProperty = Name
+
+	annotation PBI_ResultType = Table
+

@@ -1,0 +1,35 @@
+relationship 4a305842-4aa8-4039-9343-95613bde53ee
+	joinOnDateBehavior: datePartOnly
+	fromColumn: dim_tempo.data_inicio_semana
+	toColumn: LocalDateTable_5bbec424-c20f-4a7b-aac6-def69595a65e.Date
+
+relationship 0fbfe55c-7e69-4f2e-b4e1-bab11cece7f2
+	fromColumn: fato_casos_dengue.sk_alerta
+	toColumn: dim_alerta.sk_alerta
+
+	annotation PBI_IsFromSource = FS
+
+relationship 0e5ddcca-1841-4083-9d52-ca565620196e
+	fromColumn: fato_casos_dengue.sk_clima
+	toColumn: dim_clima.sk_clima
+
+	annotation PBI_IsFromSource = FS
+
+relationship 80e572b3-ca0e-4671-a7e9-2f342e283388
+	fromColumn: fato_casos_dengue.sk_doenca
+	toColumn: dim_doenca.sk_doenca
+
+	annotation PBI_IsFromSource = FS
+
+relationship 400912fc-3813-4faa-9f3a-1e5168457094
+	fromColumn: fato_casos_dengue.sk_municipio
+	toColumn: dim_municipio.sk_municipio
+
+	annotation PBI_IsFromSource = FS
+
+relationship f2bc3e4e-1525-412f-9024-34e60fda8df3
+	fromColumn: fato_casos_dengue.sk_tempo
+	toColumn: dim_tempo.sk_tempo
+
+	annotation PBI_IsFromSource = FS
+

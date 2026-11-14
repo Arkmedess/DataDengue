@@ -1,0 +1,67 @@
+table dim_alerta
+	lineageTag: 00cdc976-c694-498b-9c4f-66294e9b084f
+
+	column sk_alerta
+		dataType: int64
+		formatString: 0
+		lineageTag: 325be955-5534-42fc-9428-915cf87b6ed7
+		summarizeBy: none
+		sourceColumn: sk_alerta
+
+		annotation SummarizationSetBy = Automatic
+
+	column nivel_alerta
+		dataType: int64
+		formatString: 0
+		lineageTag: 85f381df-dc5c-4e38-99fe-3b9eeed08b7b
+		summarizeBy: none
+		sourceColumn: nivel_alerta
+
+		annotation SummarizationSetBy = Automatic
+
+	column status_alerta_nome
+		dataType: string
+		lineageTag: d740ee35-5ba0-498f-b36f-f6e4d2fe2ade
+		summarizeBy: none
+		sourceColumn: status_alerta_nome
+		sortByColumn: nivel_alerta
+
+		annotation SummarizationSetBy = Automatic
+
+	column cor_indicativa
+		dataType: string
+		lineageTag: b080ebc2-5fe2-4482-9c51-143670fbb2c8
+		summarizeBy: none
+		sourceColumn: cor_indicativa
+
+		annotation SummarizationSetBy = Automatic
+
+	column descricao_risco
+		dataType: string
+		lineageTag: 17962b3a-963e-46fa-b124-815abb85fc95
+		summarizeBy: none
+		sourceColumn: descricao_risco
+
+		annotation SummarizationSetBy = Automatic
+
+	column acao_preventiva_recomendada
+		dataType: string
+		lineageTag: 99f1d9fe-85b1-4c68-a269-046ec245fd2f
+		summarizeBy: none
+		sourceColumn: acao_preventiva_recomendada
+
+		annotation SummarizationSetBy = Automatic
+
+	partition dim_alerta = m
+		mode: import
+		source =
+				let
+				    Fonte = PostgreSQL.Database("localhost:5432", "datadengue"),
+				    dw_dim_alerta = Fonte{[Schema="dw",Item="dim_alerta"]}[Data]
+				in
+				    dw_dim_alerta
+
+	changedProperty = Name
+
+	annotation PBI_ResultType = Table
+

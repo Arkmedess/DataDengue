@@ -1,0 +1,57 @@
+table dim_clima
+	lineageTag: d8bb84a0-1076-4974-afa9-ba737ad144dd
+
+	column sk_clima
+		dataType: int64
+		formatString: 0
+		lineageTag: 98db27b7-2cba-46fb-b9a5-fb5d48ab9efc
+		summarizeBy: none
+		sourceColumn: sk_clima
+
+		annotation SummarizationSetBy = Automatic
+
+	column faixa_temperatura
+		dataType: string
+		lineageTag: 38376d35-7c30-47d3-b51d-23ba899f7ae0
+		summarizeBy: none
+		sourceColumn: faixa_temperatura
+
+		annotation SummarizationSetBy = Automatic
+
+	column faixa_umidade
+		dataType: string
+		lineageTag: 39976d99-8d3d-491c-ad07-87aa4ab5687d
+		summarizeBy: none
+		sourceColumn: faixa_umidade
+
+		annotation SummarizationSetBy = Automatic
+
+	column condicao_receptividade
+		dataType: string
+		lineageTag: a2465c7a-706e-4d64-ab45-19df60c10488
+		summarizeBy: none
+		sourceColumn: condicao_receptividade
+
+		annotation SummarizationSetBy = Automatic
+
+	column risco_clima_proliferacao
+		dataType: string
+		lineageTag: b3131384-fa25-41dd-a6a2-6cea989b9eb0
+		summarizeBy: none
+		sourceColumn: risco_clima_proliferacao
+
+		annotation SummarizationSetBy = Automatic
+
+	partition dim_clima = m
+		mode: import
+		source =
+				let
+				    Fonte = PostgreSQL.Database("localhost:5432", "datadengue"),
+				    dw_dim_clima = Fonte{[Schema="dw",Item="dim_clima"]}[Data]
+				in
+				    dw_dim_clima
+
+	changedProperty = Name
+
+	annotation PBI_ResultType = Table
+
